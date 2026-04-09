@@ -1,0 +1,38 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="900" fill="#F5F7FB"/>
+  <rect x="40" y="40" width="1360" height="820" rx="28" fill="#FFFFFF" stroke="#D8E1F0"/>
+  <rect x="110" y="140" width="220" height="120" rx="24" fill="#133B5C"/>
+  <rect x="390" y="140" width="220" height="120" rx="24" fill="#1C5D99"/>
+  <rect x="670" y="140" width="220" height="120" rx="24" fill="#2A7FAA"/>
+  <rect x="950" y="140" width="220" height="120" rx="24" fill="#32936F"/>
+  <rect x="1230" y="140" width="100" height="120" rx="24" fill="#F4B942"/>
+  <path d="M330 200H390" stroke="#93A8C7" stroke-width="10" stroke-linecap="round"/>
+  <path d="M610 200H670" stroke="#93A8C7" stroke-width="10" stroke-linecap="round"/>
+  <path d="M890 200H950" stroke="#93A8C7" stroke-width="10" stroke-linecap="round"/>
+  <path d="M1170 200H1230" stroke="#93A8C7" stroke-width="10" stroke-linecap="round"/>
+  <text x="148" y="188" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="28" font-weight="700">Target URL</text>
+  <text x="150" y="222" fill="#C8D8EA" font-family="Arial, sans-serif" font-size="18">job intake</text>
+  <text x="432" y="188" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="28" font-weight="700">Scraper</text>
+  <text x="420" y="222" fill="#D4E7FF" font-family="Arial, sans-serif" font-size="18">browser + extraction</text>
+  <text x="700" y="188" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="28" font-weight="700">Processing</text>
+  <text x="700" y="222" fill="#D7F3FF" font-family="Arial, sans-serif" font-size="18">HTML to semantic markdown</text>
+  <text x="990" y="188" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="28" font-weight="700">Analysis</text>
+  <text x="1004" y="222" fill="#D6FFEF" font-family="Arial, sans-serif" font-size="18">agent outputs</text>
+  <text x="1248" y="188" fill="#FFFDF6" font-family="Arial, sans-serif" font-size="24" font-weight="700">Export</text>
+  <text x="1246" y="222" fill="#5D4A1E" font-family="Arial, sans-serif" font-size="16">deliverables</text>
+  <rect x="110" y="360" width="1220" height="410" rx="28" fill="#0F172A"/>
+  <rect x="150" y="408" width="540" height="320" rx="22" fill="#12233A"/>
+  <rect x="730" y="408" width="560" height="320" rx="22" fill="#101F33"/>
+  <rect x="184" y="446" width="148" height="16" rx="8" fill="#E6EEF9"/>
+  <rect x="184" y="484" width="468" height="14" rx="7" fill="#5C7494"/>
+  <rect x="184" y="520" width="468" height="14" rx="7" fill="#5C7494"/>
+  <rect x="184" y="556" width="468" height="14" rx="7" fill="#5C7494"/>
+  <rect x="184" y="604" width="180" height="46" rx="16" fill="#173F52"/>
+  <rect x="390" y="604" width="180" height="46" rx="16" fill="#1F5C7A"/>
+  <rect x="764" y="446" width="198" height="16" rx="8" fill="#E6EEF9"/>
+  <rect x="764" y="484" width="490" height="98" rx="20" fill="#17364F"/>
+  <rect x="764" y="608" width="150" height="40" rx="14" fill="#223C5E"/>
+  <rect x="934" y="608" width="150" height="40" rx="14" fill="#29476F"/>
+  <rect x="1104" y="608" width="150" height="40" rx="14" fill="#2D5876"/>
+  <text x="184" y="694" fill="#7A93B3" font-family="Arial, sans-serif" font-size="18">Run telemetry, markdown snapshots, and export pipeline</text>
+</svg>
