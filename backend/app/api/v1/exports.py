@@ -1,0 +1,277 @@
+"""Exports API endpoints.
+
+Handles triggering and downloading export files.
+"""
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
+from app.config import settings
+from app.models.export import Export
+from app.models.job import Job
+from app.models.run import Run
+from app.models.user import User
+from app.schemas.export import ExportCreate, ExportListResponse, ExportResponse
+from app.storage.manager import StorageManager
+
+
+router = APIRouter()
+
+
+def _get_run_export():
+    try:
+        from app.queue.tasks import run_export
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Background worker dependencies are missing. Install backend requirements and restart the API.",
+        ) from exc
+
+    return run_export
+
+
+@router.post(
+    "",
+    response_model=ExportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new export",
+)
+async def create_export(
+    export_data: ExportCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    api_key: str = Depends(verify_api_key),
+) -> ExportResponse:
+    """Create a new export from run results.
+    
+    Dispatches a Celery task to generate the export file asynchronously.
+    
+    Args:
+        export_data: Export configuration (run_id, format).
+        db: Database session.
+        current_user: The authenticated user.
+        
+    Returns:
+        ExportResponse: The created export record.
+        
+    Raises:
+        HTTPException 404: If run not found or doesn't belong to user.
+    """
+    # Verify run belongs to user
+    run_stmt = (
+        select(Run)
+        .join(Job, Run.job_id == Job.id)
+        .where(Run.id == export_data.run_id, Job.user_id == current_user.id)
+    )
+    run_result = await db.execute(run_stmt)
+    run = run_result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Create export record placeholder to be populated by the background worker.
+    new_export = Export(
+        run_id=export_data.run_id,
+        format=export_data.format,
+        file_path="",
+    )
+    
+    db.add(new_export)
+    await db.commit()
+    await db.refresh(new_export)
+    
+    # Dispatch Celery task for async export generation
+    try:
+        _get_run_export().delay(str(new_export.id), str(current_user.id))
+    except Exception as exc:
+        await db.delete(new_export)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Export queue is currently unavailable. Please try again shortly.",
+        ) from exc
+    
+    return ExportResponse.model_validate(new_export)
+
+
+@router.get(
+    "",
+    response_model=ExportListResponse,
+    summary="List user's exports",
+)
+async def list_exports(
+    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum records to return"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExportListResponse:
+    """List all exports for the current user.
+    
+    Args:
+        skip: Number of records to skip.
+        limit: Maximum number of records to return.
+        db: Database session.
+        current_user: The authenticated user.
+        
+    Returns:
+        ExportListResponse: Paginated list of exports.
+    """
+    # Get total count - exports belong to user via run -> job -> user
+    count_stmt = (
+        select(func.count(Export.id))
+        .select_from(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Job.user_id == current_user.id)
+    )
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+    
+    # Get exports
+    stmt = (
+        select(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Job.user_id == current_user.id)
+        .order_by(Export.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    exports = result.scalars().all()
+    
+    export_responses = [ExportResponse.model_validate(e) for e in exports]
+    
+    return ExportListResponse(exports=export_responses, total=total)
+
+
+@router.get(
+    "/{export_id}",
+    response_model=ExportResponse,
+    summary="Get export details",
+)
+async def get_export(
+    export_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExportResponse:
+    """Get details of a specific export.
+    
+    Args:
+        export_id: The export's unique identifier.
+        db: Database session.
+        current_user: The authenticated user.
+        
+    Returns:
+        ExportResponse: The export data.
+        
+    Raises:
+        HTTPException 404: If export not found or doesn't belong to user.
+    """
+    stmt = (
+        select(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Export.id == export_id, Job.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    export = result.scalar_one_or_none()
+    
+    if not export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export not found",
+        )
+    
+    return ExportResponse.model_validate(export)
+
+
+@router.get(
+    "/{export_id}/download",
+    summary="Download export file",
+)
+async def download_export(
+    export_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageManager = Depends(get_storage),
+) -> FileResponse:
+    """Download an export file.
+    
+    Args:
+        export_id: The export's unique identifier.
+        db: Database session.
+        current_user: The authenticated user.
+        storage: Storage manager for file operations.
+        
+    Returns:
+        FileResponse: The export file for download.
+        
+    Raises:
+        HTTPException 404: If export or file not found.
+    """
+    stmt = (
+        select(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Export.id == export_id, Job.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    export = result.scalar_one_or_none()
+    
+    if not export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export not found",
+        )
+    
+    # Check if file exists
+    if not storage.file_exists(export.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export file not found",
+        )
+    resolved_file_path = storage.resolve_path(export.file_path)
+    storage_root = settings.STORAGE_ROOT.resolve()
+    resolved_file_path_str = str(resolved_file_path)
+    storage_root_str = str(storage_root)
+    storage_root_prefix = f"{storage_root_str}/"
+    if not (
+        resolved_file_path_str == storage_root_str
+        or resolved_file_path_str.startswith(storage_root_prefix)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid export file path",
+        )
+    
+    # Determine media type and filename
+    media_types = {
+        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "json": "application/json",
+    }
+    extensions = {
+        "excel": ".xlsx",
+        "pdf": ".pdf",
+        "word": ".docx",
+        "json": ".json",
+    }
+    
+    media_type = media_types.get(export.format, "application/octet-stream")
+    extension = extensions.get(export.format, "")
+    filename = f"export_{export_id}{extension}"
+    
+    return FileResponse(
+        path=resolved_file_path,
+        filename=filename,
+        media_type=media_type,
+    )

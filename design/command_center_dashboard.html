@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Command Center Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./command_center_dashboard.css" />
+  </head>
+  <body>
+    <div class="command-center-shell">
+      <aside class="settings-sidebar surface-low">
+        <div class="sidebar-header">
+          <span class="eyebrow">Project Settings</span>
+          <h2>Sovereign Controls</h2>
+          <p>Filters, visibility, notifications, and reporting behaviors for the active plan.</p>
+        </div>
+
+        <section class="settings-group surface-panel">
+          <label class="field-label" for="visibility">Visibility</label>
+          <select id="visibility" class="sovereign-select">
+            <option>Internal Only</option>
+            <option>Client Shared</option>
+            <option>Executive Review</option>
+          </select>
+        </section>
+
+        <section class="settings-group surface-panel">
+          <label class="field-label" for="category">Category Filter</label>
+          <select id="category" class="sovereign-select">
+            <option>All Workstreams</option>
+            <option>Platform</option>
+            <option>Intelligence</option>
+            <option>Design</option>
+            <option>Operations</option>
+          </select>
+        </section>
+
+        <section class="settings-group surface-panel">
+          <span class="field-label">Notifications</span>
+          <label class="toggle-row">
+            <span>Budget Warnings</span>
+            <input type="checkbox" checked />
+          </label>
+          <label class="toggle-row">
+            <span>Overdue Tasks</span>
+            <input type="checkbox" checked />
+          </label>
+          <label class="toggle-row">
+            <span>Milestone Alerts</span>
+            <input type="checkbox" checked />
+          </label>
+          <label class="toggle-row">
+            <span>Executive Digest</span>
+            <input type="checkbox" />
+          </label>
+        </section>
+
+        <section class="settings-group surface-panel">
+          <span class="field-label">Plan Tags</span>
+          <div class="chip-stack">
+            <span class="data-chip chip-warm">Active</span>
+            <span class="data-chip chip-cool">AI Infra</span>
+            <span class="data-chip chip-neutral">Priority Review</span>
+            <span class="data-chip chip-cool">Q2 Launch</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="dashboard-main">
+        <header class="dashboard-header glass-panel">
+          <div class="header-copy">
+            <span class="eyebrow">Project 1444918229901845874</span>
+            <h1>Command Center</h1>
+            <div class="header-meta">
+              <span class="status-pill status-planning">Plan Data Pending</span>
+              <span class="meta-item">Screen: Aardvark Intelligence 3D Landing Page</span>
+              <span class="meta-item">Screen ID: 0d6b9dfab32f46eeb8de97f5550d1eb0</span>
+              <span class="meta-item">Owner: Not provided in source files</span>
+            </div>
+          </div>
+
+          <div class="header-actions">
+            <button class="button button-secondary">Edit Plan</button>
+            <button class="button button-secondary">Add Task</button>
+            <button class="button button-primary">Export Report</button>
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <article class="hero-priority glass-panel urgent-panel">
+            <span class="eyebrow">Urgent Signal</span>
+            <h2>Top-left attention zone</h2>
+            <p>
+              Surface overdue tasks, budget warnings, and blockers here first so the highest-risk
+              data is visible before any secondary information.
+            </p>
+
+            <div class="source-note surface-panel">
+              <strong>Source coverage</strong>
+              <p>
+                The provided Stitch files included the project title, project ID, screen name, and
+                design direction, but no real budget, owner roster, task list, milestones, or dates.
+              </p>
+            </div>
+
+            <div class="warning-cluster">
+              <div class="warning-card surface-panel warning-high">
+                <span class="warning-label">Overdue Tasks</span>
+                <strong>Not provided</strong>
+                <p>No overdue-task count was included in the source plan data.</p>
+              </div>
+
+              <div class="warning-card surface-panel warning-medium">
+                <span class="warning-label">Budget Risk</span>
+                <strong>Not provided</strong>
+                <p>No budget threshold or spend warning data was included in the source plan.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="hero-progress glass-panel">
+            <div class="section-title">
+              <span class="eyebrow">Milestone Progress</span>
+              <h2>Execution Horizon</h2>
+            </div>
+
+            <div class="progress-metric">
+              <div>
+                <span class="metric-caption">Overall Completion</span>
+                <strong>0%</strong>
+              </div>
+              <span class="metric-caption">Target: Not provided</span>
+            </div>
+
+            <div class="progress-track" aria-label="Project milestone progress">
+              <div class="progress-fill" style="width: 0%"></div>
+            </div>
+
+            <div class="milestone-list">
+              <div class="milestone-item">
+                <span class="milestone-name">Project Created: Command Center</span>
+                <span class="status-pill status-complete">Known</span>
+              </div>
+              <div class="milestone-item">
+                <span class="milestone-name">Screen Confirmed: Aardvark Intelligence 3D Landing Page</span>
+                <span class="status-pill status-complete">Known</span>
+              </div>
+              <div class="milestone-item">
+                <span class="milestone-name">Milestones and delivery dates</span>
+                <span class="status-pill status-planning">Missing</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="kpi-grid">
+          <article class="kpi-card surface-panel">
+            <span class="eyebrow">Total Budget</span>
+            <strong>Not provided</strong>
+            <p>The source plan did not include budget or spend allocation values.</p>
+          </article>
+
+          <article class="kpi-card surface-panel">
+            <span class="eyebrow">Assigned Team</span>
+            <strong>Not provided</strong>
+            <p>No team roster or contributor count was included in the Stitch source files.</p>
+          </article>
+
+          <article class="kpi-card surface-panel">
+            <span class="eyebrow">Days Remaining</span>
+            <strong>Not provided</strong>
+            <p>No target date or remaining-day calculation was included in the source plan.</p>
+          </article>
+
+          <article class="kpi-card surface-panel">
+            <span class="eyebrow">Open Tasks</span>
+            <strong>Not provided</strong>
+            <p>No task inventory or breakdown counts were provided in the project files.</p>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <section class="task-board glass-panel">
+            <div class="section-title">
+              <span class="eyebrow">Task Breakdown</span>
+              <h2>Execution Board</h2>
+            </div>
+
+            <div class="kanban-grid">
+              <article class="kanban-column surface-panel">
+                <div class="column-header">
+                  <h3>Backlog</h3>
+                  <span class="column-count">N/A</span>
+                </div>
+
+                <div class="task-card priority-medium">
+                  <span class="task-priority">Source Placeholder</span>
+                  <h4>No backlog tasks were included</h4>
+                  <p>The provided files do not contain a real backlog list, owner, or due date.</p>
+                  <div class="task-meta">
+                    <span>Owner unavailable</span>
+                    <span>Due date unavailable</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="kanban-column surface-panel">
+                <div class="column-header">
+                  <h3>In Progress</h3>
+                  <span class="column-count">N/A</span>
+                </div>
+
+                <div class="task-card priority-high">
+                  <span class="task-priority">Known Screen Work</span>
+                  <h4>Aardvark Intelligence 3D Landing Page</h4>
+                  <p>The only explicit screen in the provided source package for Project 1444918229901845874.</p>
+                  <div class="task-meta">
+                    <span>Owner unavailable</span>
+                    <span>Due date unavailable</span>
+                  </div>
+                </div>
+
+                <div class="task-card priority-medium">
+                  <span class="task-priority">Known Design System</span>
+                  <h4>Y3K Hyperfuturism</h4>
+                  <p>Design direction confirmed from the provided DESIGN.md and design prompt files.</p>
+                  <div class="task-meta">
+                    <span>Design source</span>
+                    <span>No schedule provided</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="kanban-column surface-panel">
+                <div class="column-header">
+                  <h3>Complete</h3>
+                  <span class="column-count">2</span>
+                </div>
+
+                <div class="task-card priority-low">
+                  <span class="task-priority">Resolved Source Facts</span>
+                  <h4>Project identity extracted</h4>
+                  <p>Project title, project ID, and screen metadata were mapped successfully from the Stitch instructions.</p>
+                  <div class="task-meta">
+                    <span>Mapped from source</span>
+                    <span>March 31, 2026</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="table-wrapper surface-panel">
+              <div class="table-heading">
+                <h3>Plan Table</h3>
+                <span class="eyebrow">For denser reporting views</span>
+              </div>
+
+              <table class="task-table">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Priority</th>
+                    <th>Due Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Aardvark Intelligence 3D Landing Page</td>
+                    <td>Not provided</td>
+                    <td><span class="status-pill status-planning">Status not provided</span></td>
+                    <td><span class="priority-tag priority-high">High</span></td>
+                    <td>Not provided</td>
+                  </tr>
+                  <tr>
+                    <td>Design System: Y3K Hyperfuturism</td>
+                    <td>Not provided</td>
+                    <td><span class="status-pill status-complete">Defined</span></td>
+                    <td><span class="priority-tag priority-medium">Medium</span></td>
+                    <td>Not provided</td>
+                  </tr>
+                  <tr>
+                    <td>Hosted assets download step</td>
+                    <td>Not provided</td>
+                    <td><span class="status-pill status-planning">Unconfirmed</span></td>
+                    <td><span class="priority-tag priority-low">Low</span></td>
+                    <td>Not provided</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="timeline-panel glass-panel">
+            <div class="section-title">
+              <span class="eyebrow">Timeline Widget</span>
+              <h2>Delivery Path</h2>
+            </div>
+
+            <div class="timeline-list">
+              <article class="timeline-item">
+                <span class="timeline-date">Known</span>
+                <div class="timeline-content surface-panel">
+                  <h3>Project Identified</h3>
+                  <p>Command Center with project ID 1444918229901845874 was provided in the Stitch instructions.</p>
+                </div>
+              </article>
+
+              <article class="timeline-item">
+                <span class="timeline-date">Known</span>
+                <div class="timeline-content surface-panel">
+                  <h3>Screen Identified</h3>
+                  <p>Aardvark Intelligence 3D Landing Page was the only explicit screen included in the source package.</p>
+                </div>
+              </article>
+
+              <article class="timeline-item">
+                <span class="timeline-date">Missing</span>
+                <div class="timeline-content surface-panel">
+                  <h3>Milestone Schedule</h3>
+                  <p>No phase dates, target milestones, or delivery windows were included in the available plan data.</p>
+                </div>
+              </article>
+
+              <article class="timeline-item">
+                <span class="timeline-date">Missing</span>
+                <div class="timeline-content surface-panel">
+                  <h3>Launch Target</h3>
+                  <p>No launch date, release gate, or reporting deadline was included in the provided source files.</p>
+                </div>
+              </article>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

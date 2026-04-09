@@ -1,0 +1,204 @@
+# Smart Scraper Platform - Git Ignore Configuration
+
+# =============================================================================
+# Environment Files
+# =============================================================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# =============================================================================
+# Node / JavaScript
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+/frontend/build
+/frontend/dist
+
+# Misc
+.DS_Store
+*.pem
+
+# =============================================================================
+# IDE / Editors
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# =============================================================================
+# Docker
+# =============================================================================
+.docker/
+
+# =============================================================================
+# Storage - Keep directories but ignore contents
+# =============================================================================
+/backend/storage/raw_html/*
+!/backend/storage/raw_html/.gitkeep
+/backend/storage/screenshots/*
+!/backend/storage/screenshots/.gitkeep
+/backend/storage/processed/*
+!/backend/storage/processed/.gitkeep
+/backend/storage/exports/*
+!/backend/storage/exports/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# =============================================================================
+# Database
+# =============================================================================
+*.sqlite3
+*.db
+
+# =============================================================================
+# Vector Store
+# =============================================================================
+*.faiss
+faiss_index/
+vector_store/
+
+# =============================================================================
+# Playwright
+# =============================================================================
+playwright-report/
+test-results/
+
+# =============================================================================
+# OS Files
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =============================================================================
+# Secrets
+# =============================================================================
+*.pem
+*.key
+secrets/
+credentials/
+# Python
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# Build
+dist/
+build/
+*.exe
+
+# Storage & temp
+backend/storage/
+pytest-tmp/
+
+# Exports
+*.pdf
+*.docx
+*.xlsx
+
+# Node
+node_modules/
