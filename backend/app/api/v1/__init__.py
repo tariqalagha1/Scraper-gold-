@@ -8,6 +8,7 @@ v1_router = APIRouter(prefix=settings.API_V1_PREFIX)
 _ROUTERS = (
     ("auth", "/auth", ["Authentication"]),
     ("account", "/account", ["Account"]),
+    ("user", "/user", ["User Data"]),
     ("api_keys", "/api-keys", ["API Keys"]),
     ("credentials", "/credentials", ["Credentials"]),
     ("jobs", "/jobs", ["Jobs"]),

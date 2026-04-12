@@ -190,6 +190,14 @@ const api = {
 
   getPlan: () => unwrapData(apiClient.get('/account/plan')),
 
+  getStorageCleanupSummary: () => unwrapData(apiClient.get('/user/storage-summary')),
+
+  clearHistory: () => unwrapData(apiClient.delete('/user/history')),
+
+  clearTempFiles: () => unwrapData(apiClient.delete('/user/temp-files')),
+
+  clearAllUserData: () => unwrapData(apiClient.delete('/user/clear-all')),
+
   getApiKeys: (params = {}) =>
     unwrapData(apiClient.get('/api-keys', { params })).then((data) => data.api_keys || []),
 

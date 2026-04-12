@@ -133,6 +133,32 @@ describe('api service', () => {
     expect(apiClient.delete).toHaveBeenCalledWith('/api-keys/key-2');
   });
 
+  test('storage cleanup methods use the user cleanup endpoints', async () => {
+    apiClient.get.mockResolvedValueOnce({
+      data: {
+        history: { total_records: 4 },
+        temp_files: { total_files: 7, estimated_freed_space_mb: 3.2 },
+      },
+    });
+    apiClient.delete
+      .mockResolvedValueOnce({ data: { status: 'success', deleted_history_records: 4 } })
+      .mockResolvedValueOnce({ data: { status: 'success', deleted_temp_files: 7 } })
+      .mockResolvedValueOnce({ data: { status: 'success', deleted_items_count: 11 } });
+
+    await expect(api.getStorageCleanupSummary()).resolves.toEqual({
+      history: { total_records: 4 },
+      temp_files: { total_files: 7, estimated_freed_space_mb: 3.2 },
+    });
+    await expect(api.clearHistory()).resolves.toEqual({ status: 'success', deleted_history_records: 4 });
+    await expect(api.clearTempFiles()).resolves.toEqual({ status: 'success', deleted_temp_files: 7 });
+    await expect(api.clearAllUserData()).resolves.toEqual({ status: 'success', deleted_items_count: 11 });
+
+    expect(apiClient.get).toHaveBeenCalledWith('/user/storage-summary');
+    expect(apiClient.delete).toHaveBeenCalledWith('/user/history');
+    expect(apiClient.delete).toHaveBeenCalledWith('/user/temp-files');
+    expect(apiClient.delete).toHaveBeenCalledWith('/user/clear-all');
+  });
+
   test('getHealth unwraps root health response', async () => {
     axios.get.mockResolvedValue({
       data: {
