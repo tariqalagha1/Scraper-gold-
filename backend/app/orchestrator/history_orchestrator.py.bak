@@ -1,0 +1,179 @@
+"""History orchestrator for advanced history management.
+
+Handles user history operations including retrieval, filtering, and deletion.
+"""
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.models.export import Export
+from app.models.job import Job
+from app.models.run import Run
+from app.models.user import User
+
+logger = get_logger("app.orchestrator.history_orchestrator")
+
+
+class HistoryOrchestrator:
+    """Orchestrator for history operations."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+
+class HistoryOrchestrator:
+    """Orchestrator for history operations."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_user_history(
+        self,
+        user_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        item_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get user history with filtering."""
+        history_items = []
+
+        # Base conditions
+        conditions = []
+        if start_date:
+            conditions.append(Run.created_at >= start_date)
+        if end_date:
+            conditions.append(Run.created_at <= end_date)
+
+        # Get runs with jobs
+        run_query = select(Run, Job).join(Job).where(
+            Job.user_id == user_id,
+            *conditions
+        ).order_by(Run.created_at.desc()).offset(offset).limit(limit)
+
+        if status:
+            run_query = run_query.where(Run.status == status)
+
+        run_results = await self.db.execute(run_query)
+        for run, job in run_results:
+            history_items.append({
+                "id": str(run.id),
+                "type": "run",
+                "title": f"Run for job '{job.name}'",
+                "description": f"Status: {run.status}, Pages scraped: {run.pages_scraped or 0}",
+                "status": run.status,
+                "timestamp": run.created_at.isoformat(),
+                "metadata": {
+                    "job_id": str(job.id),
+                    "progress": run.progress,
+                    "error_message": run.error_message,
+                }
+            })
+
+        # Get exports if no type filter or type is export
+        if not item_type or item_type == "export":
+            export_conditions = []
+            if start_date:
+                export_conditions.append(Export.created_at >= start_date)
+            if end_date:
+                export_conditions.append(Export.created_at <= end_date)
+
+            export_query = select(Export, Job.name).join(Run).join(Job).where(
+                Job.user_id == user_id,
+                *export_conditions
+            ).order_by(Export.created_at.desc()).offset(offset).limit(limit)
+
+            export_results = await self.db.execute(export_query)
+            for export, job_name in export_results:
+                history_items.append({
+                    "id": str(export.id),
+                    "type": "export",
+                    "title": f"Export for job '{job_name}'",
+                    "description": f"Format: {export.format}, Size: {export.file_size or 0} bytes",
+                    "status": "completed",
+                    "timestamp": export.created_at.isoformat(),
+                    "metadata": {
+                        "format": export.format,
+                        "file_path": export.file_path,
+                        "file_size": export.file_size,
+                    }
+                })
+
+        # Sort by timestamp
+        history_items.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # Get total count
+        total_query = select(func.count(Run.id)).join(Job).where(Job.user_id == user_id)
+        total_result = await self.db.execute(total_query)
+        total = total_result.scalar() or 0
+
+        return {
+            "items": history_items[:limit],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def delete_history_item(self, user_id: UUID, item_id: UUID, item_type: str) -> bool:
+        """Delete a specific history item."""
+        if item_type == "run":
+            # Check ownership
+            run_query = select(Run).join(Job).where(
+                Run.id == item_id,
+                Job.user_id == user_id
+            )
+            run_result = await self.db.execute(run_query)
+            run = run_result.first()
+            if run:
+                await self.db.delete(run[0])
+                await self.db.commit()
+                return True
+        elif item_type == "export":
+            # Check ownership
+            export_query = select(Export).join(Run).join(Job).where(
+                Export.id == item_id,
+                Job.user_id == user_id
+            )
+            export_result = await self.db.execute(export_query)
+            export = export_result.first()
+            if export:
+                await self.db.delete(export[0])
+                await self.db.commit()
+                return True
+
+        return False
+
+    async def clear_old_history(self, user_id: UUID, days_old: int = 30) -> int:
+        """Clear history items older than specified days."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+
+        # Delete old runs
+        run_query = select(Run).join(Job).where(
+            Job.user_id == user_id,
+            Run.created_at < cutoff_date
+        )
+        run_results = await self.db.execute(run_query)
+        deleted_runs = 0
+        for run in run_results:
+            await self.db.delete(run[0])
+            deleted_runs += 1
+
+        # Delete old exports
+        export_query = select(Export).join(Run).join(Job).where(
+            Job.user_id == user_id,
+            Export.created_at < cutoff_date
+        )
+        export_results = await self.db.execute(export_query)
+        deleted_exports = 0
+        for export in export_results:
+            await self.db.delete(export[0])
+            deleted_exports += 1
+
+        await self.db.commit()
+        return deleted_runs + deleted_exports</content>

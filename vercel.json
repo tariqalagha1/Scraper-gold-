@@ -3,5 +3,13 @@
   "buildCommand": "npm run build",
   "outputDirectory": "build",
   "installCommand": "npm install",
-  "framework": "create-react-app"
+  "framework": "create-react-app",
+  "env": {
+    "REACT_APP_API_URL": "@api_url"
+  },
+  "functions": {
+    "src/**/*.js": {
+      "maxDuration": 30
+    }
+  }
 }

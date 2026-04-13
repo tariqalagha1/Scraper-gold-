@@ -1,0 +1,39 @@
+# Railway Configuration for Smart Scraper Backend
+# This file configures the deployment on Railway.app
+
+# Build Command
+build:
+  dockerfile: Dockerfile
+
+# Environment Variables
+env:
+  - key: ENVIRONMENT
+    value: production
+  - key: DEBUG
+    value: false
+  - key: RELOAD
+    value: false
+  - key: DATABASE_URL
+    value: ${DATABASE_URL}
+  - key: REDIS_URL
+    value: ${REDIS_URL}
+  - key: SECRET_KEY
+    value: ${SECRET_KEY}
+  - key: API_KEY
+    value: ${API_KEY}
+  - key: OPENAI_API_KEY
+    value: ${OPENAI_API_KEY}
+
+# Health Check
+healthcheck:
+  path: /api/v1/health/full
+  interval: 30s
+  timeout: 10s
+
+# Port
+port: 8000
+
+# Volumes (for storage)
+volumes:
+  - name: storage
+    mountPath: /data/storage

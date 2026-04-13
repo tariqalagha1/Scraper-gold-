@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
     PROVIDER_API_KEY_ENCRYPTION_KEY: str = ""
+    SENTRY_DSN: str = ""
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

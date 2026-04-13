@@ -198,6 +198,22 @@ const api = {
 
   clearAllUserData: () => unwrapData(apiClient.delete('/user/clear-all')),
 
+  getUserActivity: (params = {}) =>
+    unwrapData(apiClient.get('/user/activity', { params })),
+
+  getUserHistory: (params = {}) =>
+    unwrapData(apiClient.get('/user/history', { params })),
+
+  deleteHistoryItem: (itemId, itemType) =>
+    unwrapData(apiClient.delete(`/user/history/${itemId}`, { params: { item_type: itemType } })),
+
+  getDemoOverview: () => unwrapData(apiClient.get('/demo/overview')),
+
+  getSystemDiagnostics: () => unwrapData(apiClient.get('/system/diagnostics')),
+
+  downloadMultipleExports: (exportIds) =>
+    apiClient.post('/exports/download', exportIds, { responseType: 'blob' }).then((response) => response.data),
+
   getApiKeys: (params = {}) =>
     unwrapData(apiClient.get('/api-keys', { params })).then((data) => data.api_keys || []),
 

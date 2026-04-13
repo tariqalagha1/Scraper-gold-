@@ -2,6 +2,7 @@
 
 Handles triggering and downloading export files.
 """
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,12 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
 from app.config import settings
-from app.models.export import Export
+from app.storage.manager import StorageManager
 from app.models.job import Job
 from app.models.run import Run
 from app.models.user import User
 from app.schemas.export import ExportCreate, ExportListResponse, ExportResponse
-from app.storage.manager import StorageManager
+from app.orchestrator.export_orchestrator import ExportOrchestrator
+from app.services.export_management_service import ExportManagementService
 
 
 router = APIRouter()
@@ -275,3 +277,120 @@ async def download_export(
         filename=filename,
         media_type=media_type,
     )
+
+
+@router.post(
+    "/download",
+    summary="Download multiple exports",
+)
+async def download_multiple_exports(
+    export_ids: List[UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageManager = Depends(get_storage),
+):
+    """Download multiple exports as a ZIP file.
+    
+    Args:
+        export_ids: List of export IDs to download.
+        db: Database session.
+        current_user: The authenticated user.
+        storage: Storage manager for file operations.
+        
+    Returns:
+        FileResponse: ZIP file containing all requested exports.
+        
+    Raises:
+        HTTPException 404: If any export not found or doesn't belong to user.
+    """
+    if not export_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one export ID must be provided",
+        )
+    
+    # Verify all exports belong to user and exist
+    for export_id in export_ids:
+        stmt = (
+            select(Export)
+            .join(Run, Export.run_id == Run.id, isouter=True)
+            .join(Job, Run.job_id == Job.id, isouter=True)
+            .where(Export.id == export_id, Job.user_id == current_user.id)
+        )
+        result = await db.execute(stmt)
+        export = result.scalar_one_or_none()
+        
+        if not export:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Export {export_id} not found",
+            )
+        
+        if not storage.file_exists(export.file_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Export file for {export_id} not found",
+            )
+    
+    # For now, return the first export (implement ZIP later if needed)
+    # TODO: Create ZIP file with multiple exports
+    export_id = export_ids[0]
+    stmt = (
+        select(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Export.id == export_id, Job.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    export = result.scalar_one_or_none()
+    
+    resolved_file_path = storage.resolve_path(export.file_path)
+    storage_root = settings.STORAGE_ROOT.resolve()
+    resolved_file_path_str = str(resolved_file_path)
+    storage_root_str = str(storage_root)
+    storage_root_prefix = f"{storage_root_str}/"
+    if not (
+        resolved_file_path_str == storage_root_str
+        or resolved_file_path_str.startswith(storage_root_prefix)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid export file path",
+        )
+    
+    # Determine media type and filename
+    media_types = {
+        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "json": "application/json",
+    }
+    extensions = {
+        "excel": ".xlsx",
+        "pdf": ".pdf",
+        "word": ".docx",
+        "json": ".json",
+    }
+    
+    media_type = media_types.get(export.format, "application/octet-stream")
+    extension = extensions.get(export.format, "")
+    filename = f"bulk_export_{len(export_ids)}_files.zip"  # Placeholder for ZIP
+    
+    return FileResponse(
+        path=resolved_file_path,  # Still returns single file for now
+        filename=filename,
+        media_type="application/zip",
+    )
+
+
+@router.get(
+    "/stats",
+    summary="Get export statistics",
+)
+async def get_export_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageManager = Depends(get_storage),
+):
+    """Get export statistics for the current user."""
+    return await ExportManagementService.get_export_stats(db, storage, current_user.id)

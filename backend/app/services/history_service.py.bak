@@ -1,0 +1,53 @@
+"""History service for history management operations.
+
+Provides business logic for history functionality.
+"""
+from typing import Any, Dict, Optional
+from uuid import UUID
+from datetime import datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.orchestrator.history_orchestrator import HistoryOrchestrator
+
+logger = get_logger("app.services.history_service")
+
+
+class HistoryService:
+    """Service for history operations."""
+
+    @staticmethod
+    async def get_user_history(
+        db: AsyncSession,
+        user_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        item_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get user history with filters."""
+        orchestrator = HistoryOrchestrator(db)
+        return await orchestrator.get_user_history(
+            user_id, limit, offset, start_date, end_date, item_type, status
+        )
+
+    @staticmethod
+    async def delete_history_item(
+        db: AsyncSession,
+        user_id: UUID,
+        item_id: UUID,
+        item_type: str
+    ) -> bool:
+        """Delete a specific history item."""
+        orchestrator = HistoryOrchestrator(db)
+        return await orchestrator.delete_history_item(user_id, item_id, item_type)
+
+    @staticmethod
+    async def clear_old_history(db: AsyncSession, user_id: UUID, days_old: int = 30) -> int:
+        """Clear old history items."""
+        orchestrator = HistoryOrchestrator(db)
+        return await orchestrator.clear_old_history(user_id, days_old)</content>
+<parameter name="filePath">/Users/tariqalagha/Desktop/scraper-main/backend/app/services/history_service.py

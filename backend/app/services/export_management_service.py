@@ -1,0 +1,51 @@
+"""Export management service for export operations.
+
+Provides business logic for export management functionality.
+"""
+from typing import Any, Dict, Optional
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.orchestrator.export_orchestrator import ExportOrchestrator
+from app.storage.manager import StorageManager
+
+logger = get_logger("app.services.export_management_service")
+
+
+class ExportManagementService:
+    """Service for export management operations."""
+
+    @staticmethod
+    async def get_user_exports(
+        db: AsyncSession,
+        storage: StorageManager,
+        user_id: UUID,
+        limit: int = 20,
+        offset: int = 0,
+        format_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get user's exports."""
+        orchestrator = ExportOrchestrator(db, storage)
+        return await orchestrator.get_user_exports(user_id, limit, offset, format_filter)
+
+    @staticmethod
+    async def get_export_download_url(
+        db: AsyncSession,
+        storage: StorageManager,
+        user_id: UUID,
+        export_id: UUID
+    ) -> Optional[str]:
+        """Get export download URL."""
+        orchestrator = ExportOrchestrator(db, storage)
+        return await orchestrator.get_export_download_url(user_id, export_id)
+
+    @staticmethod
+    async def get_export_stats(
+        db: AsyncSession,
+        storage: StorageManager,
+        user_id: UUID
+    ) -> Dict[str, Any]:
+        """Get export statistics."""
+        return await orchestrator.get_export_stats(user_id)

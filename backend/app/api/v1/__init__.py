@@ -16,6 +16,8 @@ _ROUTERS = (
     ("results", "/results", ["Results"]),
     ("exports", "/exports", ["Exports"]),
     ("scraping_types", "/scraping-types", ["Scraping Types"]),
+    ("demo", "/demo", ["Demo"]),
+    ("system", "/system", ["System"]),
 )
 
 for module_name, prefix, tags in _ROUTERS:

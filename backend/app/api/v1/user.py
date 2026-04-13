@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Depends
+from typing import Any, Dict, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_storage
 from app.models.user import User
 from app.schemas.storage_cleanup import CleanupResultResponse, StorageCleanupEstimateResponse
-from app.services.user_cleanup import (
-    clear_user_all,
-    clear_user_history,
-    clear_user_temp_files,
-    get_storage_cleanup_estimate,
-)
+from app.orchestrator.history_orchestrator import HistoryOrchestrator
+from app.orchestrator.diagnostics_orchestrator import DiagnosticsOrchestrator
+from app.services.dashboard_service import DashboardService
+from app.services.history_service import HistoryService
 from app.storage.manager import StorageManager
 
 
@@ -50,3 +51,98 @@ async def delete_user_all(
     current_user: User = Depends(get_current_user),
 ) -> CleanupResultResponse:
     return await clear_user_all(db, current_user.id, storage)
+
+
+@router.get("/activity", response_model=Dict[str, Any])
+async def get_user_activity(
+    limit: int = Query(default=50, ge=1, le=100, description="Number of activities to return"),
+    offset: int = Query(default=0, ge=0, description="Number of activities to skip"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get user activity timeline."""
+    orchestrator = HistoryOrchestrator(db)
+    return await orchestrator.get_user_activity(current_user.id, limit, offset)
+
+
+@router.get("/history", response_model=Dict[str, Any])
+async def get_user_history(
+    start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
+    item_type: Optional[str] = Query(None, description="Filter by type: jobs, runs, exports"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get user history with optional filtering."""
+    from datetime import datetime
+    filters = {}
+    if start_date:
+        filters["start_date"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+    if end_date:
+        filters["end_date"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+    if item_type:
+        filters["type"] = item_type
+
+    orchestrator = HistoryOrchestrator(db)
+    return await orchestrator.get_user_history(current_user.id, filters)
+
+
+@router.delete("/history/{item_id}", response_model=Dict[str, bool])
+async def delete_history_item(
+    item_id: UUID,
+    item_type: str = Query(..., description="Type of item to delete: job, run, export"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, bool]:
+    """Delete a specific history item."""
+    orchestrator = HistoryOrchestrator(db)
+    success = await orchestrator.delete_history_item(current_user.id, item_type, item_id)
+    return {"success": success}
+
+
+@router.get("/activity")
+async def get_user_activity(
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get user's recent activity."""
+    return await DashboardService.get_recent_activity(db, current_user.id, limit)
+
+
+@router.get("/history")
+async def get_user_history(
+    limit: int = 50,
+    offset: int = 0,
+    start_date: str = None,
+    end_date: str = None,
+    item_type: str = None,
+    status: str = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get user's history with filtering."""
+    from datetime import datetime
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    return await HistoryService.get_user_history(
+        db, current_user.id, limit, offset, start, end, item_type, status
+    )
+
+
+@router.delete("/history/{item_id}")
+async def delete_history_item(
+    item_id: str,
+    item_type: str = "run",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a specific history item."""
+    from uuid import UUID
+    success = await HistoryService.delete_history_item(
+        db, current_user.id, UUID(item_id), item_type
+    )
+    if not success:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"success": True}

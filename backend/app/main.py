@@ -23,6 +23,24 @@ from app.middleware.rate_limit import RedisRateLimitMiddleware
 from app.orchestrator.memory_service import log_memory_backend_startup_status
 from app.queue.celery_app import celery_app
 
+# Initialize Sentry
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.redis import RedisIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[
+            FastApiIntegration(),
+            RedisIntegration(),
+            SqlalchemyIntegration(),
+        ],
+        traces_sample_rate=1.0,
+        environment=settings.ENVIRONMENT,
+    )
+
 
 logger = get_logger("app.main")
 

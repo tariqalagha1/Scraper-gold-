@@ -11,6 +11,8 @@ import ResultsWorkbench from '../components/ResultsWorkbench';
 import RecentRunsCard from '../components/RecentRunsCard';
 import RecentRequestsCard from '../components/RecentRequestsCard';
 import SectionHeader from '../components/SectionHeader';
+import ActivityTimeline from '../components/ActivityTimeline';
+import DiagnosticsWidget from '../components/DiagnosticsWidget';
 import api from '../services/api';
 import { getRecentRequests } from '../assistant/orchestrator';
 import {
@@ -221,6 +223,11 @@ const DashboardPage = () => {
         </div>
 
         <RecentRequestsCard requests={recentRequests} onReuse={handleReuseRequest} />
+
+        <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_1fr]">
+          <ActivityTimeline />
+          <DiagnosticsWidget />
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,233 @@
+#!/bin/bash
+# Production Deployment Setup Script
+# This script helps set up all production infrastructure components
+
+set -e
+
+echo "🚀 Smart Scraper Platform - Production Deployment Setup"
+echo "======================================================"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if required tools are installed
+check_dependencies() {
+    print_status "Checking dependencies..."
+
+    command -v node >/dev/null 2>&1 || { print_error "Node.js is required but not installed."; exit 1; }
+    command -v npm >/dev/null 2>&1 || { print_error "npm is required but not installed."; exit 1; }
+    command -v python3 >/dev/null 2>&1 || { print_error "Python3 is required but not installed."; exit 1; }
+    command -v pip >/dev/null 2>&1 || { print_error "pip is required but not installed."; exit 1; }
+
+    print_success "All dependencies are installed"
+}
+
+# Setup Supabase database
+setup_supabase() {
+    print_status "Setting up Supabase database..."
+
+    echo "Please create a new Supabase project at https://supabase.com"
+    echo "Then run the following SQL migrations in the Supabase SQL editor:"
+    echo ""
+    echo "1. Create database schema (run migrations in order)"
+    echo "2. Set up Row Level Security (RLS) policies"
+    echo "3. Create necessary indexes"
+    echo ""
+    read -p "Have you created the Supabase project and run the migrations? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Please create Supabase project first, then re-run this script"
+        return 1
+    fi
+
+    read -p "Enter your Supabase project URL: " SUPABASE_URL
+    read -p "Enter your Supabase anon key: " SUPABASE_ANON_KEY
+    read -p "Enter your Supabase service role key: " SUPABASE_SERVICE_KEY
+
+    # Save to environment variables
+    echo "SUPABASE_URL=$SUPABASE_URL" >> .env.production
+    echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_KEY" >> .env.production
+
+    print_success "Supabase database configured"
+}
+
+# Setup Upstash Redis
+setup_upstash() {
+    print_status "Setting up Upstash Redis..."
+
+    echo "Please create a Redis database at https://upstash.com"
+    echo "Then provide the connection details:"
+    echo ""
+    read -p "Enter your Upstash Redis URL: " REDIS_URL
+
+    echo "REDIS_URL=$REDIS_URL" >> .env.production
+
+    print_success "Upstash Redis configured"
+}
+
+# Setup Clerk authentication
+setup_clerk() {
+    print_status "Setting up Clerk authentication..."
+
+    echo "Please create a Clerk application at https://clerk.com"
+    echo "Then provide the API keys:"
+    echo ""
+    read -p "Enter your Clerk publishable key: " CLERK_PUBLISHABLE_KEY
+    read -p "Enter your Clerk secret key: " CLERK_SECRET_KEY
+
+    echo "REACT_APP_CLERK_PUBLISHABLE_KEY=$CLERK_PUBLISHABLE_KEY" >> .env.production
+    echo "CLERK_SECRET_KEY=$CLERK_SECRET_KEY" >> .env.production
+
+    print_success "Clerk authentication configured"
+}
+
+# Setup Sentry monitoring
+setup_sentry() {
+    print_status "Setting up Sentry monitoring..."
+
+    echo "Please create a Sentry project at https://sentry.io"
+    echo "Create one project for the frontend and one for the backend"
+    echo ""
+    read -p "Enter your frontend Sentry DSN: " SENTRY_FRONTEND_DSN
+    read -p "Enter your backend Sentry DSN: " SENTRY_BACKEND_DSN
+
+    echo "REACT_APP_SENTRY_DSN=$SENTRY_FRONTEND_DSN" >> .env.production
+    echo "SENTRY_DSN=$SENTRY_BACKEND_DSN" >> .env.production
+
+    print_success "Sentry monitoring configured"
+}
+
+# Setup Vercel deployment
+setup_vercel() {
+    print_status "Setting up Vercel deployment..."
+
+    echo "Please login to Vercel CLI:"
+    echo "npx vercel login"
+    echo ""
+    read -p "Have you logged into Vercel? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Please login to Vercel first"
+        return 1
+    fi
+
+    cd frontend
+    npx vercel --prod
+    cd ..
+
+    print_success "Vercel deployment configured"
+}
+
+# Setup Railway backend deployment
+setup_railway() {
+    print_status "Setting up Railway backend deployment..."
+
+    echo "Please create a Railway project at https://railway.app"
+    echo "Then deploy the backend using the railway.toml configuration"
+    echo ""
+    read -p "Have you created the Railway project? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Please create Railway project first"
+        return 1
+    fi
+
+    print_success "Railway backend deployment ready"
+}
+
+# Generate production environment file
+generate_env() {
+    print_status "Generating production environment file..."
+
+    cat > .env.production << EOF
+# Production Environment Variables
+# Generated by deployment script
+
+# App Configuration
+ENVIRONMENT=production
+DEBUG=false
+RELOAD=false
+
+# Security
+SECRET_KEY=$(openssl rand -hex 32)
+API_KEY=prod-api-key-$(openssl rand -hex 8)
+
+# Database (to be filled by setup_supabase)
+DATABASE_URL=
+
+# Redis (to be filled by setup_upstash)
+REDIS_URL=
+
+# AI Services
+OPENAI_API_KEY=
+
+# Monitoring (to be filled by setup_sentry)
+SENTRY_DSN=
+
+# Authentication (to be filled by setup_clerk)
+CLERK_SECRET_KEY=
+
+# Frontend
+REACT_APP_CLERK_PUBLISHABLE_KEY=
+REACT_APP_SENTRY_DSN=
+REACT_APP_API_URL=
+EOF
+
+    print_success "Production environment file generated at .env.production"
+}
+
+# Main deployment flow
+main() {
+    check_dependencies
+
+    echo ""
+    print_status "Starting production deployment setup..."
+    echo ""
+
+    # Generate base environment file
+    generate_env
+
+    # Setup infrastructure components
+    setup_supabase
+    setup_upstash
+    setup_clerk
+    setup_sentry
+
+    # Setup deployments
+    setup_vercel
+    setup_railway
+
+    echo ""
+    print_success "🎉 Production deployment setup complete!"
+    echo ""
+    echo "Next steps:"
+    echo "1. Review and fill in any missing environment variables in .env.production"
+    echo "2. Deploy frontend: cd frontend && npx vercel --prod"
+    echo "3. Deploy backend: railway deploy"
+    echo "4. Test the live application"
+    echo "5. Set up monitoring alerts and notifications"
+}
+
+# Run main function
+main "$@"
