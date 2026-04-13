@@ -332,56 +332,82 @@ async def download_multiple_exports(
                 detail=f"Export file for {export_id} not found",
             )
     
-    # For now, return the first export (implement ZIP later if needed)
-    # TODO: Create ZIP file with multiple exports
-    export_id = export_ids[0]
+    # Create ZIP file with all exports
+    import zipfile
+    import io
+    from datetime import datetime
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for export_id in export_ids:
+            stmt = (
+                select(Export)
+                .join(Run, Export.run_id == Run.id, isouter=True)
+                .join(Job, Run.job_id == Job.id, isouter=True)
+                .where(Export.id == export_id, Job.user_id == current_user.id)
+            )
+            result = await db.execute(stmt)
+            export = result.scalar_one_or_none()
+            
+            if export and export.file_path and storage.file_exists(export.file_path):
+                try:
+                    file_content = storage.read_file(export.file_path)
+                    arcname = f"{export.export_format}_{export_id}"
+                    zip_file.writestr(arcname, file_content)
+                except Exception as e:
+                    logger.warning(f"Failed to add export {export_id} to ZIP: {e}")
+    
+    zip_buffer.seek(0)
+    
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        path=zip_buffer,
+        media_type="application/zip",
+        filename=f"exports_{len(export_ids)}_files_{timestamp}.zip",
+    )
+
+
+
+
+@router.delete(
+    "/{export_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an export",
+)
+async def delete_export(
+    export_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageManager = Depends(get_storage),
+) -> None:
+    """Delete an export and its associated file."""
+    from app.models.export import Export
+    
     stmt = (
         select(Export)
-        .join(Run, Export.run_id == Run.id, isouter=True)
-        .join(Job, Run.job_id == Job.id, isouter=True)
+        .join(Run, Export.run_id == Run.id)
+        .join(Job, Run.job_id == Job.id)
         .where(Export.id == export_id, Job.user_id == current_user.id)
     )
     result = await db.execute(stmt)
     export = result.scalar_one_or_none()
     
-    resolved_file_path = storage.resolve_path(export.file_path)
-    storage_root = settings.STORAGE_ROOT.resolve()
-    resolved_file_path_str = str(resolved_file_path)
-    storage_root_str = str(storage_root)
-    storage_root_prefix = f"{storage_root_str}/"
-    if not (
-        resolved_file_path_str == storage_root_str
-        or resolved_file_path_str.startswith(storage_root_prefix)
-    ):
+    if not export:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid export file path",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export not found",
         )
     
-    # Determine media type and filename
-    media_types = {
-        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "pdf": "application/pdf",
-        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "json": "application/json",
-    }
-    extensions = {
-        "excel": ".xlsx",
-        "pdf": ".pdf",
-        "word": ".docx",
-        "json": ".json",
-    }
+    # Delete the export file from storage
+    if export.file_path and storage.file_exists(export.file_path):
+        try:
+            storage.delete_file(export.file_path)
+        except Exception:
+            pass
     
-    media_type = media_types.get(export.format, "application/octet-stream")
-    extension = extensions.get(export.format, "")
-    filename = f"bulk_export_{len(export_ids)}_files.zip"  # Placeholder for ZIP
-    
-    return FileResponse(
-        path=resolved_file_path,  # Still returns single file for now
-        filename=filename,
-        media_type="application/zip",
-    )
-
+    # Delete the export record from database
+    await db.delete(export)
+    await db.commit()
 
 @router.get(
     "/stats",

@@ -185,6 +185,51 @@ async def retry_run(
     return RunResponse.model_validate(retry)
 
 
+@router.post(
+    "/{run_id}/cancel",
+    response_model=RunResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a pending or running run",
+)
+async def cancel_run(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunResponse:
+    """Cancel a pending or running run."""
+    stmt = (
+        select(Run)
+        .join(Job, Run.job_id == Job.id)
+        .where(Run.id == run_id, Job.user_id == current_user.id)
+        .with_for_update()
+    )
+    result = await db.execute(stmt)
+    run = result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    if run.status not in {"pending", "running"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel a {run.status} run. Only pending or running runs can be cancelled.",
+        )
+    
+    run.status = "cancelled"
+    run.finished_at = func.now()
+    run.error_message = "Run was cancelled by user"
+    
+    await db.commit()
+    await db.refresh(run)
+    
+    append_run_log(str(run.id), event="run_cancelled", message="Run was cancelled by user.")
+    
+    return RunResponse.model_validate(run)
+
+
 @router.get(
     "/{run_id}",
     response_model=RunResponse,

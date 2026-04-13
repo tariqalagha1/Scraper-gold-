@@ -16,6 +16,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import StopRoundedIcon from '@mui/icons-material/StopRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import api from '../services/api';
@@ -37,6 +38,7 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
   const [markdownPreviewError, setMarkdownPreviewError] = useState('');
   const [markdownPreviewContent, setMarkdownPreviewContent] = useState('');
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState('');
+  const [cancelingRunIds, setCancelingRunIds] = useState(new Set());
 
   const recentItems = jobs
     .map((job) => ({
@@ -74,11 +76,35 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
       setMarkdownPreviewContent(String(payload?.markdown || '').trim());
       setMarkdownPreviewPath(payload?.snapshot_path || run.markdown_snapshot_path || '');
     } catch (error) {
-      setMarkdownPreviewError(
-        getErrorMessage(error, 'Could not load semantic markdown for this run.')
-      );
+      // Handle missing markdown snapshot gracefully (404 means not yet generated)
+      if (error.response?.status === 404) {
+        setMarkdownPreviewError('Markdown snapshot not yet available for this run.');
+      } else {
+        setMarkdownPreviewError(
+          getErrorMessage(error, 'Could not load semantic markdown for this run.')
+        );
+      }
     } finally {
       setMarkdownPreviewLoading(false);
+    }
+  };
+
+  const handleCancelRun = async (runId) => {
+    if (!window.confirm('Are you sure you want to cancel this run?')) return;
+
+    try {
+      setCancelingRunIds(prev => new Set([...prev, runId]));
+      await api.cancelRun(runId);
+      // Optionally refresh the runs after canceling
+      window.location.reload();
+    } catch (error) {
+      console.error('Error canceling run:', error);
+      alert('Failed to cancel run');
+      setCancelingRunIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(runId);
+        return newSet;
+      });
     }
   };
 
@@ -182,25 +208,55 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
                           </Typography>
                         </Box>
 
-                        <Button
-                          component={Link}
-                          to={`/jobs/${job.id}`}
-                          variant="outlined"
-                          endIcon={<OpenInNewRoundedIcon />}
-                          sx={{
-                            textTransform: 'none',
-                            whiteSpace: 'nowrap',
-                            borderRadius: 3,
-                            borderColor: 'rgba(79, 69, 58, 0.5)',
-                            color: '#E2E2E3',
-                            '&:hover': {
-                              borderColor: 'rgba(240, 189, 127, 0.52)',
-                              backgroundColor: 'rgba(13, 16, 20, 0.85)',
-                            },
-                          }}
-                        >
-                          Open Workspace
-                        </Button>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Button
+                            component={Link}
+                            to={`/jobs/${job.id}`}
+                            variant="outlined"
+                            endIcon={<OpenInNewRoundedIcon />}
+                            sx={{
+                              textTransform: 'none',
+                              whiteSpace: 'nowrap',
+                              borderRadius: 3,
+                              borderColor: 'rgba(79, 69, 58, 0.5)',
+                              color: '#E2E2E3',
+                              '&:hover': {
+                                borderColor: 'rgba(240, 189, 127, 0.52)',
+                                backgroundColor: 'rgba(13, 16, 20, 0.85)',
+                              },
+                            }}
+                          >
+                            Open Workspace
+                          </Button>
+                          {run && ['running', 'pending', 'queued'].includes(run.status) && (
+                            <Tooltip title="Cancel this run">
+                              <Button
+                                onClick={() => handleCancelRun(run.id)}
+                                disabled={cancelingRunIds.has(run.id)}
+                                variant="outlined"
+                                size="small"
+                                endIcon={<StopRoundedIcon />}
+                                sx={{
+                                  textTransform: 'none',
+                                  whiteSpace: 'nowrap',
+                                  borderRadius: 3,
+                                  borderColor: 'rgba(239, 68, 68, 0.5)',
+                                  color: '#EF4444',
+                                  '&:hover': {
+                                    borderColor: 'rgba(239, 68, 68, 0.8)',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                  },
+                                  '&:disabled': {
+                                    opacity: 0.6,
+                                    cursor: 'not-allowed',
+                                  },
+                                }}
+                              >
+                                {cancelingRunIds.has(run.id) ? 'Canceling...' : 'Cancel'}
+                              </Button>
+                            </Tooltip>
+                          )}
+                        </Stack>
                       </Stack>
                     </CardContent>
                   </Card>

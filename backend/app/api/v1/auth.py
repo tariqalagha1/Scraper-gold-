@@ -20,6 +20,27 @@ from app.schemas.user import TokenResponse, UserCreate, UserResponse
 router = APIRouter()
 
 
+def _validate_password_strength(password: str) -> dict:
+    """Validate password meets minimum strength requirements."""
+    if len(password) < 8:
+        return {"valid": False, "reason": "Password must be at least 8 characters"}
+    
+    if not any(c.isupper() for c in password):
+        return {"valid": False, "reason": "Password must contain at least one uppercase letter"}
+    
+    if not any(c.islower() for c in password):
+        return {"valid": False, "reason": "Password must contain at least one lowercase letter"}
+    
+    if not any(c.isdigit() for c in password):
+        return {"valid": False, "reason": "Password must contain at least one digit"}
+    
+    if not any(c in "!@#$%^&*" for c in password):
+        return {"valid": False, "reason": "Password must contain at least one special character (!@#$%^&*)"}
+    
+    return {"valid": True, "reason": ""}
+
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -45,6 +66,14 @@ async def register(
     Raises:
         HTTPException 409: If email is already registered.
     """
+    # Validate password strength
+    password_validation = _validate_password_strength(user_data.password)
+    if not password_validation["valid"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Password is too weak: {password_validation['reason']}",
+        )
+    
     # Create new user with hashed password
     hashed_pwd = hash_password(user_data.password)
     new_user = User(

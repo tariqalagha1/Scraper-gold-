@@ -235,6 +235,8 @@ const api = {
 
   createJob: (jobData) => unwrapData(apiClient.post('/jobs', jobData)),
 
+  deleteJob: (jobId) => unwrapData(apiClient.delete(`/jobs/${jobId}`)),
+
   startJobRun: (jobId) =>
     unwrapData(apiClient.post(`/jobs/${jobId}/runs`)).then((run) => normalizeRun(run)),
 
@@ -267,6 +269,12 @@ const api = {
       .then((response) => response.data),
 
   getScrapingTypes: () => unwrapData(apiClient.get('/scraping-types')),
+
+  cancelRun: (runId) => unwrapData(apiClient.post(`/runs/${runId}/cancel`)),
+
+  deleteExport: (exportId) => unwrapData(apiClient.delete(`/exports/${exportId}`)),
+
+  getExportStatus: (exportId) => unwrapData(apiClient.get(`/exports/${exportId}`)),
 
   getHealth: () => {
     const rootApiUrl = resolveRootApiUrl();
