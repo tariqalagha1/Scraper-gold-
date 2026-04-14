@@ -24,12 +24,61 @@ class HistoryOrchestrator:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def get_user_activity(self, user_id: UUID, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Get unified activity timeline for a user."""
+        activities: list[dict[str, Any]] = []
 
-class HistoryOrchestrator:
-    """Orchestrator for history operations."""
+        run_query = (
+            select(Run, Job.name.label("job_name"))
+            .select_from(Run)
+            .join(Job, Run.job_id == Job.id)
+            .where(Job.user_id == user_id)
+            .order_by(Run.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        run_results = await self.db.execute(run_query)
+        for run, job_name in run_results:
+            activities.append(
+                {
+                    "id": str(run.id),
+                    "type": "run",
+                    "action": f"Run started for job '{job_name}'",
+                    "status": run.status,
+                    "timestamp": run.created_at.isoformat(),
+                }
+            )
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
+        export_query = (
+            select(Export, Job.name.label("job_name"))
+            .select_from(Export)
+            .join(Run, Export.run_id == Run.id)
+            .join(Job, Run.job_id == Job.id)
+            .where(Job.user_id == user_id)
+            .order_by(Export.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        export_results = await self.db.execute(export_query)
+        for export, job_name in export_results:
+            activities.append(
+                {
+                    "id": str(export.id),
+                    "type": "export",
+                    "action": f"Export created for job '{job_name}' in {export.format} format",
+                    "status": "completed",
+                    "timestamp": export.created_at.isoformat(),
+                }
+            )
+
+        activities.sort(key=lambda item: item["timestamp"], reverse=True)
+        paged = activities[:limit]
+        return {
+            "activities": paged,
+            "total": len(activities),
+            "limit": limit,
+            "offset": offset,
+        }
 
     async def get_user_history(
         self,
@@ -52,29 +101,40 @@ class HistoryOrchestrator:
             conditions.append(Run.created_at <= end_date)
 
         # Get runs with jobs
-        run_query = select(Run, Job).join(Job).where(
-            Job.user_id == user_id,
-            *conditions
-        ).order_by(Run.created_at.desc()).offset(offset).limit(limit)
+        if not item_type or item_type == "run":
+            run_query = (
+                select(Run, Job)
+                .select_from(Run)
+                .join(Job, Run.job_id == Job.id)
+                .where(
+                    Job.user_id == user_id,
+                    *conditions,
+                )
+                .order_by(Run.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
 
-        if status:
-            run_query = run_query.where(Run.status == status)
+            if status:
+                run_query = run_query.where(Run.status == status)
 
-        run_results = await self.db.execute(run_query)
-        for run, job in run_results:
-            history_items.append({
-                "id": str(run.id),
-                "type": "run",
-                "title": f"Run for job '{job.name}'",
-                "description": f"Status: {run.status}, Pages scraped: {run.pages_scraped or 0}",
-                "status": run.status,
-                "timestamp": run.created_at.isoformat(),
-                "metadata": {
-                    "job_id": str(job.id),
-                    "progress": run.progress,
-                    "error_message": run.error_message,
-                }
-            })
+            run_results = await self.db.execute(run_query)
+            for run, job in run_results:
+                history_items.append(
+                    {
+                        "id": str(run.id),
+                        "type": "run",
+                        "title": f"Run for job '{job.name}'",
+                        "description": f"Status: {run.status}, Pages scraped: {run.pages_scraped or 0}",
+                        "status": run.status,
+                        "timestamp": run.created_at.isoformat(),
+                        "metadata": {
+                            "job_id": str(job.id),
+                            "progress": run.progress,
+                            "error_message": run.error_message,
+                        },
+                    }
+                )
 
         # Get exports if no type filter or type is export
         if not item_type or item_type == "export":
@@ -84,34 +144,37 @@ class HistoryOrchestrator:
             if end_date:
                 export_conditions.append(Export.created_at <= end_date)
 
-            export_query = select(Export, Job.name).join(Run).join(Job).where(
+            export_query = select(Export, Job.name).select_from(Export).join(
+                Run, Export.run_id == Run.id
+            ).join(
+                Job, Run.job_id == Job.id
+            ).where(
                 Job.user_id == user_id,
                 *export_conditions
             ).order_by(Export.created_at.desc()).offset(offset).limit(limit)
 
             export_results = await self.db.execute(export_query)
             for export, job_name in export_results:
-                history_items.append({
-                    "id": str(export.id),
-                    "type": "export",
-                    "title": f"Export for job '{job_name}'",
-                    "description": f"Format: {export.format}, Size: {export.file_size or 0} bytes",
-                    "status": "completed",
-                    "timestamp": export.created_at.isoformat(),
-                    "metadata": {
-                        "format": export.format,
-                        "file_path": export.file_path,
-                        "file_size": export.file_size,
+                history_items.append(
+                    {
+                        "id": str(export.id),
+                        "type": "export",
+                        "title": f"Export for job '{job_name}'",
+                        "description": f"Format: {export.format}, Size: {export.file_size or 0} bytes",
+                        "status": "completed",
+                        "timestamp": export.created_at.isoformat(),
+                        "metadata": {
+                            "format": export.format,
+                            "file_path": export.file_path,
+                            "file_size": export.file_size,
+                        },
                     }
-                })
+                )
 
         # Sort by timestamp
         history_items.sort(key=lambda x: x["timestamp"], reverse=True)
 
-        # Get total count
-        total_query = select(func.count(Run.id)).join(Job).where(Job.user_id == user_id)
-        total_result = await self.db.execute(total_query)
-        total = total_result.scalar() or 0
+        total = len(history_items)
 
         return {
             "items": history_items[:limit],
@@ -124,7 +187,7 @@ class HistoryOrchestrator:
         """Delete a specific history item."""
         if item_type == "run":
             # Check ownership
-            run_query = select(Run).join(Job).where(
+            run_query = select(Run).select_from(Run).join(Job, Run.job_id == Job.id).where(
                 Run.id == item_id,
                 Job.user_id == user_id
             )
@@ -136,7 +199,11 @@ class HistoryOrchestrator:
                 return True
         elif item_type == "export":
             # Check ownership
-            export_query = select(Export).join(Run).join(Job).where(
+            export_query = select(Export).select_from(Export).join(
+                Run, Export.run_id == Run.id
+            ).join(
+                Job, Run.job_id == Job.id
+            ).where(
                 Export.id == item_id,
                 Job.user_id == user_id
             )
@@ -154,7 +221,7 @@ class HistoryOrchestrator:
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
 
         # Delete old runs
-        run_query = select(Run).join(Job).where(
+        run_query = select(Run).select_from(Run).join(Job, Run.job_id == Job.id).where(
             Job.user_id == user_id,
             Run.created_at < cutoff_date
         )
@@ -165,7 +232,11 @@ class HistoryOrchestrator:
             deleted_runs += 1
 
         # Delete old exports
-        export_query = select(Export).join(Run).join(Job).where(
+        export_query = select(Export).select_from(Export).join(
+            Run, Export.run_id == Run.id
+        ).join(
+            Job, Run.job_id == Job.id
+        ).where(
             Job.user_id == user_id,
             Export.created_at < cutoff_date
         )

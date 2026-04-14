@@ -12,7 +12,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.job import Job
 from app.models.run import Run
 from app.models.user import User
-from app.schemas.job import JobCreate, JobListResponse, JobResponse
+from app.schemas.job import JobCreate, JobListResponse, JobResponse, JobUpdate
 from app.schemas.run import RunListResponse, RunResponse
 from app.services.saas import enforce_job_limit, enforce_run_limit
 
@@ -240,6 +240,82 @@ async def get_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
+    
+    return _serialize_job(job)
+
+
+@router.patch(
+    "/{job_id}",
+    response_model=JobResponse,
+    summary="Update job details",
+)
+async def update_job(
+    job_id: UUID,
+    job_update: JobUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> JobResponse:
+    """Partially update a scraping job.
+    
+    Only provided fields will be updated. Jobs that are running or completed
+    cannot be updated.
+    
+    Args:
+        job_id: The job's unique identifier.
+        job_update: Fields to update.
+        db: Database session.
+        current_user: The authenticated user.
+        
+    Returns:
+        JobResponse: The updated job data.
+        
+    Raises:
+        HTTPException 404: If job not found or doesn't belong to user.
+        HTTPException 400: If job cannot be updated.
+    """
+    stmt = select(Job).where(Job.id == job_id, Job.user_id == current_user.id)
+    result = await db.execute(stmt)
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    
+    # Check if job can be updated
+    if job.status in ("running", "completed", "failed", "cancelled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot update job with status '{job.status}'",
+        )
+    
+    # Apply updates
+    update_data = job_update.model_dump(exclude_unset=True)
+    if update_data:
+        # Handle URL fields
+        if "url" in update_data:
+            update_data["url"] = str(update_data["url"])
+        if "login_url" in update_data:
+            update_data["login_url"] = str(update_data["login_url"]) if update_data["login_url"] else None
+        
+        # Handle scrape_type enum
+        if "scrape_type" in update_data:
+            update_data["scrape_type"] = update_data["scrape_type"].value
+        
+        # Update config if provided
+        if "config" in update_data:
+            current_config = dict(job.config or {})
+            current_config.update(update_data.pop("config"))
+            update_data["config"] = current_config
+        
+        # Update other fields
+        for field, value in update_data.items():
+            setattr(job, field, value)
+        
+        job.updated_at = None  # Will be set by database trigger
+        await db.commit()
+        await db.refresh(job)
     
     return _serialize_job(job)
 

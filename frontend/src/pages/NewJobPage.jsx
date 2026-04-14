@@ -292,6 +292,14 @@ const NewJobPage = () => {
         {/* Step 3: Configure Options */}
         <Box>
           <Typography variant="h6" gutterBottom>Configure Options</Typography>
+          <Alert
+            severity="info"
+            sx={{ mb: 2 }}
+          >
+            Advanced runtime options (for example: traversal mode, detail page limits, timeout tuning,
+            selector waits, stealth toggles, and pagination strategy overrides) are currently API-only
+            settings. Use the job <code>config</code> payload through the API for those fields.
+          </Alert>
           <TextField
             fullWidth
             type="number"

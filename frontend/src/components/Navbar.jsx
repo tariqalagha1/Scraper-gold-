@@ -4,6 +4,7 @@ import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import PsychologyRoundedIcon from '@mui/icons-material/PsychologyRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useAuth } from '../context/AuthContext';
 
@@ -50,6 +51,12 @@ const Navbar = () => {
               <span className="inline-flex items-center gap-2">
                 <SettingsSuggestRoundedIcon sx={{ fontSize: 18 }} />
                 Settings
+              </span>
+            </NavLink>
+            <NavLink to="/ai-integrations" className={navLinkClass}>
+              <span className="inline-flex items-center gap-2">
+                <PsychologyRoundedIcon sx={{ fontSize: 18 }} />
+                AI Integrations
               </span>
             </NavLink>
             <NavLink to="/exports" className={navLinkClass}>

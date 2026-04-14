@@ -20,7 +20,7 @@ import StopRoundedIcon from '@mui/icons-material/StopRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import api from '../services/api';
-import { formatDate, formatStatus, getErrorMessage, getStatusColor, truncateString } from '../utils/helpers';
+import { formatDate, formatStatus, getErrorMessage, truncateString } from '../utils/helpers';
 
 const toCompressionPercentage = (ratio) => {
   const normalizedRatio = Number(ratio);
@@ -147,7 +147,12 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
                               <Chip
                                 label={`${formatStatus(run.status)} ${run.progress ?? 0}%`}
                                 size="small"
-                                color={getStatusColor(run.status)}
+                                variant="outlined"
+                                sx={{
+                                  color: run.status === 'failed' ? '#EF4444' : '#F0BD7F',
+                                  borderColor: run.status === 'failed' ? 'rgba(239, 68, 68, 0.5)' : 'rgba(240, 189, 127, 0.52)',
+                                  backgroundColor: run.status === 'failed' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(240, 189, 127, 0.08)',
+                                }}
                               />
                             ) : (
                               <Chip label="No run yet" size="small" variant="outlined" />

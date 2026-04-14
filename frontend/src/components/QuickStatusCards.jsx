@@ -36,9 +36,23 @@ const QuickStatusCards = ({ jobs = [], runs = [], accountSummary = null }) => {
   const runSignalLabel = compressionPercent !== null
     ? `Compressed: ${compressionPercent}%`
     : recentSignal;
-  const runSignalColor = compressionPercent !== null
-    ? 'info'
-    : (recentSignal === 'Healthy' ? 'success' : 'warning');
+  const runSignalStyle = compressionPercent !== null
+    ? {
+        color: '#F0BD7F',
+        borderColor: 'rgba(240, 189, 127, 0.52)',
+        backgroundColor: 'rgba(240, 189, 127, 0.08)',
+      }
+    : recentSignal === 'Healthy'
+    ? {
+        color: '#F0BD7F',
+        borderColor: 'rgba(240, 189, 127, 0.52)',
+        backgroundColor: 'rgba(240, 189, 127, 0.08)',
+      }
+    : {
+        color: '#EF4444',
+        borderColor: 'rgba(239, 68, 68, 0.5)',
+        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+      };
   const runSignalHelp = compressionPercent !== null
     ? `${completedRuns} completed, ${failedRuns} failed`
     : `${completedRuns} completed, ${failedRuns} failed`;
@@ -85,12 +99,10 @@ const QuickStatusCards = ({ jobs = [], runs = [], accountSummary = null }) => {
                 <Chip
                   label={card.value}
                   size="small"
-                  color={runSignalColor}
+                  variant="outlined"
                   sx={{
                     mt: 1,
-                    borderColor: compressionPercent !== null ? 'rgba(240, 189, 127, 0.52)' : undefined,
-                    color: compressionPercent !== null ? '#F0BD7F' : undefined,
-                    backgroundColor: compressionPercent !== null ? 'rgba(240, 189, 127, 0.08)' : undefined,
+                    ...runSignalStyle,
                   }}
                 />
               )}

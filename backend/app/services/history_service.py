@@ -48,4 +48,5 @@ class HistoryService:
     @staticmethod
     async def clear_old_history(db: AsyncSession, user_id: UUID, days_old: int = 30) -> int:
         """Clear old history items."""
+        orchestrator = HistoryOrchestrator(db)
         return await orchestrator.clear_old_history(user_id, days_old)

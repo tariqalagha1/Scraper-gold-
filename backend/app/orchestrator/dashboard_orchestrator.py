@@ -5,7 +5,7 @@ Handles dashboard data aggregation and processing.
 from typing import Any, Dict, List
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -37,9 +37,9 @@ class DashboardOrchestrator:
         # Get run counts
         run_query = select(
             func.count(Run.id).label("total_runs"),
-            func.sum(func.case((Run.status == "completed", 1), else_=0)).label("completed_runs"),
-            func.sum(func.case((Run.status == "running", 1), else_=0)).label("running_runs"),
-            func.sum(func.case((Run.status == "failed", 1), else_=0)).label("failed_runs"),
+            func.sum(case((Run.status == "completed", 1), else_=0)).label("completed_runs"),
+            func.sum(case((Run.status == "running", 1), else_=0)).label("running_runs"),
+            func.sum(case((Run.status == "failed", 1), else_=0)).label("failed_runs"),
         ).join(Job).where(Job.user_id == user_id)
 
         run_result = await self.db.execute(run_query)

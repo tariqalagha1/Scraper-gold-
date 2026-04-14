@@ -4,6 +4,7 @@ Handles system health checks, performance metrics, and diagnostic information.
 """
 import os
 import platform
+from datetime import datetime, timezone
 import psutil
 from typing import Any, Dict
 from uuid import UUID
@@ -57,7 +58,7 @@ class DiagnosticsOrchestrator:
             "system": system_info,
             "process": process_info,
             "database": db_stats,
-            "timestamp": "now",  # Could use datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def _get_database_stats(self) -> Dict[str, Any]:

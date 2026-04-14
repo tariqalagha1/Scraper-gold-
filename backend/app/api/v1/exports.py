@@ -2,16 +2,23 @@
 
 Handles triggering and downloading export files.
 """
+import io
+import logging
+import zipfile
+from datetime import datetime
+from pathlib import Path
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
 from app.config import settings
+from app.models.export import Export
 from app.storage.manager import StorageManager
 from app.models.job import Job
 from app.models.run import Run
@@ -22,6 +29,7 @@ from app.services.export_management_service import ExportManagementService
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_run_export():
@@ -308,62 +316,74 @@ async def download_multiple_exports(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one export ID must be provided",
         )
-    
-    # Verify all exports belong to user and exist
-    for export_id in export_ids:
-        stmt = (
-            select(Export)
-            .join(Run, Export.run_id == Run.id, isouter=True)
-            .join(Job, Run.job_id == Job.id, isouter=True)
-            .where(Export.id == export_id, Job.user_id == current_user.id)
+
+    # De-duplicate while preserving input order.
+    unique_export_ids = list(dict.fromkeys(export_ids))
+
+    # Fetch all requested exports in a single query and verify ownership.
+    stmt = (
+        select(Export)
+        .join(Run, Export.run_id == Run.id, isouter=True)
+        .join(Job, Run.job_id == Job.id, isouter=True)
+        .where(Export.id.in_(unique_export_ids), Job.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    exports = result.scalars().all()
+    exports_by_id = {export.id: export for export in exports}
+
+    if len(exports_by_id) != len(unique_export_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more exports were not found",
         )
-        result = await db.execute(stmt)
-        export = result.scalar_one_or_none()
-        
-        if not export:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Export {export_id} not found",
-            )
-        
-        if not storage.file_exists(export.file_path):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Export file for {export_id} not found",
-            )
-    
+
+    storage_root = settings.STORAGE_ROOT.resolve()
+    storage_root_str = str(storage_root)
+    storage_root_prefix = f"{storage_root_str}/"
+
     # Create ZIP file with all exports
-    import zipfile
-    import io
-    from datetime import datetime
-    
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for export_id in export_ids:
-            stmt = (
-                select(Export)
-                .join(Run, Export.run_id == Run.id, isouter=True)
-                .join(Job, Run.job_id == Job.id, isouter=True)
-                .where(Export.id == export_id, Job.user_id == current_user.id)
-            )
-            result = await db.execute(stmt)
-            export = result.scalar_one_or_none()
-            
-            if export and export.file_path and storage.file_exists(export.file_path):
-                try:
-                    file_content = storage.read_file(export.file_path)
-                    arcname = f"{export.export_format}_{export_id}"
-                    zip_file.writestr(arcname, file_content)
-                except Exception as e:
-                    logger.warning(f"Failed to add export {export_id} to ZIP: {e}")
+        for export_id in unique_export_ids:
+            export = exports_by_id[export_id]
+            if not export.file_path or not storage.file_exists(export.file_path):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Export file for {export_id} not found",
+                )
+
+            resolved_file_path = storage.resolve_path(export.file_path)
+            resolved_file_path_str = str(resolved_file_path)
+            if not (
+                resolved_file_path_str == storage_root_str
+                or resolved_file_path_str.startswith(storage_root_prefix)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid export file path for {export_id}",
+                )
+            if not resolved_file_path.exists():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Export file for {export_id} not found",
+                )
+
+            try:
+                file_content = storage.read_file(export.file_path)
+                suffix = Path(export.file_path).suffix
+                arcname = f"{export.format}_{export_id}{suffix}"
+                zip_file.writestr(arcname, file_content)
+            except Exception as e:
+                logger.warning(f"Failed to add export {export_id} to ZIP: {e}")
     
     zip_buffer.seek(0)
     
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    return FileResponse(
-        path=zip_buffer,
+    filename = f"exports_{len(export_ids)}_files_{timestamp}.zip"
+    return StreamingResponse(
+        zip_buffer,
         media_type="application/zip",
-        filename=f"exports_{len(export_ids)}_files_{timestamp}.zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -381,8 +401,7 @@ async def delete_export(
     storage: StorageManager = Depends(get_storage),
 ) -> None:
     """Delete an export and its associated file."""
-    from app.models.export import Export
-    
+
     stmt = (
         select(Export)
         .join(Run, Export.run_id == Run.id)

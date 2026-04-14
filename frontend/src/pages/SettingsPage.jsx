@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import SectionHeader from '../components/SectionHeader';
 import api from '../services/api';
 import {
@@ -53,7 +54,7 @@ const SettingsPage = () => {
   const [busyScope, setBusyScope] = useState('');
   const [notice, setNotice] = useState({ type: '', message: '' });
   const [modalScope, setModalScope] = useState('');
-  const localEstimate = useMemo(() => getLocalCleanupEstimate(), [summary]);
+  const localEstimate = useMemo(() => getLocalCleanupEstimate(), []);
 
   const loadSummary = async () => {
     try {
@@ -149,6 +150,30 @@ const SettingsPage = () => {
           {notice.message}
         </div>
       )}
+
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <Link
+          to="/ai-integrations"
+          className="rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Integrations</p>
+          <h3 className="mt-3 text-2xl font-semibold text-textMain">AI Integrations</h3>
+          <p className="mt-3 text-sm leading-6 text-textMuted">
+            Manage provider API keys (OpenAI, Anthropic, Gemini, Serper) and encrypted backend integration state.
+          </p>
+        </Link>
+
+        <Link
+          to="/api-keys"
+          className="rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Features</p>
+          <h3 className="mt-3 text-2xl font-semibold text-textMain">API Keys</h3>
+          <p className="mt-3 text-sm leading-6 text-textMuted">
+            Create and rotate Smart Scraper API keys used by your own scripts and external integrations.
+          </p>
+        </Link>
+      </div>
 
       <div className="mt-10 grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-[28px] border border-white/10 bg-surface p-6 shadow-glow">

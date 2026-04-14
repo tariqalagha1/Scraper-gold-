@@ -189,14 +189,14 @@ async def retry_run(
     "/{run_id}/cancel",
     response_model=RunResponse,
     status_code=status.HTTP_200_OK,
-    summary="Cancel a pending or running run",
+    summary="Cancel a queued, pending, or running run",
 )
 async def cancel_run(
     run_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RunResponse:
-    """Cancel a pending or running run."""
+    """Cancel a queued, pending, or running run."""
     stmt = (
         select(Run)
         .join(Job, Run.job_id == Job.id)
@@ -212,10 +212,10 @@ async def cancel_run(
             detail="Run not found",
         )
     
-    if run.status not in {"pending", "running"}:
+    if run.status not in {"queued", "pending", "running"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot cancel a {run.status} run. Only pending or running runs can be cancelled.",
+            detail=f"Cannot cancel a {run.status} run. Only queued, pending, or running runs can be cancelled.",
         )
     
     run.status = "cancelled"

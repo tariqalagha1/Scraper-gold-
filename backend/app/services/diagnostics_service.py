@@ -24,4 +24,5 @@ class DiagnosticsService:
     @staticmethod
     async def get_demo_overview(db: AsyncSession) -> Dict[str, Any]:
         """Get demo overview data."""
+        orchestrator = DiagnosticsOrchestrator(db)
         return await orchestrator.get_demo_overview()

@@ -109,4 +109,6 @@ class ExportOrchestrator:
 
         return {
             "formats": format_stats,
+            "total_exports": total_exports,
+            "total_size": total_size,
         }

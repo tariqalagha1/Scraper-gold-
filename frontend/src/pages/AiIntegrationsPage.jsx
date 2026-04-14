@@ -5,6 +5,7 @@ import api from '../services/api';
 
 const PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
+  { value: 'anthropic', label: 'Anthropic' },
   { value: 'serper', label: 'Serper' },
   { value: 'gemini', label: 'Gemini' },
 ];

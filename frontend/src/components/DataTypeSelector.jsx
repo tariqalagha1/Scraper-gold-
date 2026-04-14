@@ -2,7 +2,7 @@
  * Data type selector component.
  * Allows user to select: general, pdf, word, excel, images, videos, structured
  */
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import FormControl from '@mui/material/FormControl';
 import FormLabel from '@mui/material/FormLabel';
@@ -10,8 +10,9 @@ import RadioGroup from '@mui/material/RadioGroup';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Radio from '@mui/material/Radio';
 import Typography from '@mui/material/Typography';
+import api from '../services/api';
 
-const dataTypes = [
+const fallbackDataTypes = [
   { value: 'general', label: 'General', description: 'Extract general web content' },
   { value: 'pdf', label: 'PDF Documents', description: 'Extract and download PDF files' },
   { value: 'word', label: 'Word Documents', description: 'Extract and download Word files' },
@@ -27,6 +28,43 @@ const optionBackground = 'rgba(8, 11, 14, 0.62)';
 const selectedBackground = 'rgba(28, 22, 14, 0.45)';
 
 const DataTypeSelector = ({ value, onChange }) => {
+  const [remoteTypes, setRemoteTypes] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadTypes = async () => {
+      try {
+        const items = await api.getScrapingTypes();
+        if (!mounted || !Array.isArray(items) || items.length === 0) {
+          return;
+        }
+        const normalized = items
+          .map((item) => ({
+            value: String(item?.type || '').trim(),
+            label: String(item?.label || '').trim(),
+            description: String(item?.description || '').trim(),
+          }))
+          .filter((item) => item.value && item.label);
+        if (normalized.length > 0) {
+          setRemoteTypes(normalized);
+        }
+      } catch {
+        // Keep local fallback options when API list cannot be loaded.
+      }
+    };
+
+    loadTypes();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const dataTypes = useMemo(
+    () => (remoteTypes.length > 0 ? remoteTypes : fallbackDataTypes),
+    [remoteTypes]
+  );
+
   return (
     <FormControl component="fieldset" sx={{ width: '100%' }}>
       <FormLabel

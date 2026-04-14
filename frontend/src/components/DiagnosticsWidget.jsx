@@ -27,14 +27,14 @@ const DiagnosticsWidget = () => {
   const { system = {}, process = {}, database = {} } = diagnostics;
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold mb-4">System Diagnostics</h3>
+    <div className="rounded-2xl border border-white/10 bg-surface p-6 shadow-sm">
+      <h3 className="text-lg font-semibold mb-4 text-white">System Diagnostics</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* System Info */}
         <div className="space-y-2">
-          <h4 className="font-medium text-gray-900">System</h4>
-          <div className="text-sm text-gray-600 space-y-1">
+          <h4 className="font-medium text-white">System</h4>
+          <div className="text-sm text-[#D3C4B5] space-y-1">
             <div>Platform: {system.platform}</div>
             <div>Python: {system.python_version}</div>
             <div>CPU Cores: {system.cpu_count}</div>
@@ -45,8 +45,8 @@ const DiagnosticsWidget = () => {
 
         {/* Process Info */}
         <div className="space-y-2">
-          <h4 className="font-medium text-gray-900">Process</h4>
-          <div className="text-sm text-gray-600 space-y-1">
+          <h4 className="font-medium text-white">Process</h4>
+          <div className="text-sm text-[#D3C4B5] space-y-1">
             <div>PID: {process.pid}</div>
             <div>CPU: {process.cpu_percent?.toFixed(1)}%</div>
             <div>Memory: {process.memory_mb?.toFixed(1)} MB</div>
@@ -56,8 +56,8 @@ const DiagnosticsWidget = () => {
 
         {/* Database Info */}
         <div className="space-y-2">
-          <h4 className="font-medium text-gray-900">Database</h4>
-          <div className="text-sm text-gray-600 space-y-1">
+          <h4 className="font-medium text-white">Database</h4>
+          <div className="text-sm text-[#D3C4B5] space-y-1">
             <div>Users: {database.users}</div>
             <div>Jobs: {database.jobs}</div>
             <div>Runs: {database.runs}</div>
@@ -72,10 +72,10 @@ const DiagnosticsWidget = () => {
         </div>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-gray-200">
+      <div className="mt-6 pt-4 border-t border-white/10">
         <button
           onClick={fetchDiagnostics}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 bg-[#FFD3A0] text-[#121415] rounded-md hover:bg-[#F0BD7F] focus:outline-none focus:ring-2 focus:ring-[#FFD3A0]"
         >
           Refresh Diagnostics
         </button>

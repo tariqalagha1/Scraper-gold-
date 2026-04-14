@@ -48,4 +48,5 @@ class ExportManagementService:
         user_id: UUID
     ) -> Dict[str, Any]:
         """Get export statistics."""
+        orchestrator = ExportOrchestrator(db, storage)
         return await orchestrator.get_export_stats(user_id)

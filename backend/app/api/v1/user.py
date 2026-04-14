@@ -8,9 +8,12 @@ from app.api.deps import get_current_user, get_db, get_storage
 from app.models.user import User
 from app.schemas.storage_cleanup import CleanupResultResponse, StorageCleanupEstimateResponse
 from app.orchestrator.history_orchestrator import HistoryOrchestrator
-from app.orchestrator.diagnostics_orchestrator import DiagnosticsOrchestrator
-from app.services.dashboard_service import DashboardService
-from app.services.history_service import HistoryService
+from app.services.user_cleanup import (
+    clear_user_all,
+    clear_user_history,
+    clear_user_temp_files,
+    get_storage_cleanup_estimate,
+)
 from app.storage.manager import StorageManager
 
 
@@ -70,21 +73,31 @@ async def get_user_history(
     start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
     end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
     item_type: Optional[str] = Query(None, description="Filter by type: jobs, runs, exports"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(default=50, ge=1, le=200, description="Number of history items to return"),
+    offset: int = Query(default=0, ge=0, description="Number of history items to skip"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get user history with optional filtering."""
     from datetime import datetime
-    filters = {}
+    parsed_start_date = None
+    parsed_end_date = None
     if start_date:
-        filters["start_date"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
     if end_date:
-        filters["end_date"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-    if item_type:
-        filters["type"] = item_type
+        parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
 
     orchestrator = HistoryOrchestrator(db)
-    return await orchestrator.get_user_history(current_user.id, filters)
+    return await orchestrator.get_user_history(
+        current_user.id,
+        limit=limit,
+        offset=offset,
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        item_type=item_type,
+        status=status,
+    )
 
 
 @router.delete("/history/{item_id}", response_model=Dict[str, bool])
@@ -96,5 +109,5 @@ async def delete_history_item(
 ) -> Dict[str, bool]:
     """Delete a specific history item."""
     orchestrator = HistoryOrchestrator(db)
-    success = await orchestrator.delete_history_item(current_user.id, item_type, item_id)
+    success = await orchestrator.delete_history_item(current_user.id, item_id, item_type)
     return {"success": success}

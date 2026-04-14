@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import AccountPage from './pages/AccountPage';
+import AiIntegrationsPage from './pages/AiIntegrationsPage';
 import ApiKeysPage from './pages/ApiKeysPage';
 import DashboardPage from './pages/DashboardPage';
 import ExportsPage from './pages/ExportsPage';
@@ -87,6 +88,14 @@ function AppRoutes() {
             element={
               <ProtectedRoute>
                 <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ai-integrations"
+            element={
+              <ProtectedRoute>
+                <AiIntegrationsPage />
               </ProtectedRoute>
             }
           />
