@@ -2,10 +2,13 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db, get_storage
+from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
 from app.models.user import User
+from app.models.user_preference import UserPreference
+from app.schemas.preferences import DashboardPreferences, DashboardPreferencesResponse
 from app.schemas.storage_cleanup import CleanupResultResponse, StorageCleanupEstimateResponse
 from app.orchestrator.history_orchestrator import HistoryOrchestrator
 from app.services.user_cleanup import (
@@ -29,7 +32,11 @@ async def get_storage_summary(
     return await get_storage_cleanup_estimate(db, current_user.id, storage)
 
 
-@router.delete("/history", response_model=CleanupResultResponse)
+@router.delete(
+    "/history",
+    response_model=CleanupResultResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_user_history(
     db: AsyncSession = Depends(get_db),
     storage: StorageManager = Depends(get_storage),
@@ -38,7 +45,11 @@ async def delete_user_history(
     return await clear_user_history(db, current_user.id, storage)
 
 
-@router.delete("/temp-files", response_model=CleanupResultResponse)
+@router.delete(
+    "/temp-files",
+    response_model=CleanupResultResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_user_temp_files(
     db: AsyncSession = Depends(get_db),
     storage: StorageManager = Depends(get_storage),
@@ -47,7 +58,11 @@ async def delete_user_temp_files(
     return await clear_user_temp_files(db, current_user.id, storage)
 
 
-@router.delete("/clear-all", response_model=CleanupResultResponse)
+@router.delete(
+    "/clear-all",
+    response_model=CleanupResultResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_user_all(
     db: AsyncSession = Depends(get_db),
     storage: StorageManager = Depends(get_storage),
@@ -100,7 +115,57 @@ async def get_user_history(
     )
 
 
-@router.delete("/history/{item_id}", response_model=Dict[str, bool])
+@router.get("/preferences/dashboard", response_model=DashboardPreferencesResponse)
+async def get_dashboard_preferences(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DashboardPreferencesResponse:
+    preference_record = (
+        await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
+    ).scalar_one_or_none()
+
+    if preference_record is None:
+        return DashboardPreferencesResponse(preferences=DashboardPreferences(), updated_at=None)
+
+    preferences = DashboardPreferences.model_validate(preference_record.dashboard_preferences or {})
+    return DashboardPreferencesResponse(preferences=preferences, updated_at=preference_record.updated_at)
+
+
+@router.put(
+    "/preferences/dashboard",
+    response_model=DashboardPreferencesResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_dashboard_preferences(
+    payload: DashboardPreferences,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DashboardPreferencesResponse:
+    preference_record = (
+        await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
+    ).scalar_one_or_none()
+
+    if preference_record is None:
+        preference_record = UserPreference(
+            user_id=current_user.id,
+            dashboard_preferences=payload.model_dump(),
+        )
+        db.add(preference_record)
+    else:
+        preference_record.dashboard_preferences = payload.model_dump()
+
+    await db.commit()
+    await db.refresh(preference_record)
+
+    preferences = DashboardPreferences.model_validate(preference_record.dashboard_preferences or {})
+    return DashboardPreferencesResponse(preferences=preferences, updated_at=preference_record.updated_at)
+
+
+@router.delete(
+    "/history/{item_id}",
+    response_model=Dict[str, bool],
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_history_item(
     item_id: UUID,
     item_type: str = Query(..., description="Type of item to delete: job, run, export"),

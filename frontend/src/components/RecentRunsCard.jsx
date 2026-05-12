@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -32,7 +32,8 @@ const toCompressionPercentage = (ratio) => {
   return Math.round((1 - boundedRatio) * 100);
 };
 
-const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
+const RecentRunsCard = ({ jobs = [], latestRunsByJob = {}, advancedView = false }) => {
+  const navigate = useNavigate();
   const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false);
   const [markdownPreviewLoading, setMarkdownPreviewLoading] = useState(false);
   const [markdownPreviewError, setMarkdownPreviewError] = useState('');
@@ -115,10 +116,10 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1} alignItems="center">
               <HistoryRoundedIcon sx={{ color: '#FFD3A0' }} />
-              <Typography variant="h6" sx={{ color: '#E2E2E3' }}>Recent Runs</Typography>
+              <Typography variant="h6" sx={{ color: '#E2E2E3' }}>Recent Activity</Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary" sx={{ color: 'rgba(226, 226, 227, 0.72)' }}>
-              Open a workspace to follow progress, results, and exports.
+              Open a workspace to follow progress and view results.
             </Typography>
 
             {recentItems.length === 0 ? (
@@ -157,7 +158,7 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
                             ) : (
                               <Chip label="No run yet" size="small" variant="outlined" />
                             )}
-                            {run?.stealth_engaged && (
+                            {advancedView && run?.stealth_engaged && (
                               <Tooltip title="Stealth mode active for this run">
                                 <Box
                                   sx={{
@@ -175,7 +176,7 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
                                 </Box>
                               </Tooltip>
                             )}
-                            {compressionPercentage !== null && (
+                            {advancedView && compressionPercentage !== null && (
                               <Chip
                                 label={`Compressed: ${compressionPercentage}%`}
                                 size="small"
@@ -187,7 +188,7 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
                                 }}
                               />
                             )}
-                            {run?.markdown_snapshot_path && (
+                            {advancedView && run?.markdown_snapshot_path && (
                               <Tooltip title="View semantic markdown">
                                 <IconButton
                                   size="small"
@@ -215,8 +216,7 @@ const RecentRunsCard = ({ jobs = [], latestRunsByJob = {} }) => {
 
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Button
-                            component={Link}
-                            to={`/jobs/${job.id}`}
+                            onClick={() => navigate(`/workspace/${job.id}`)}
                             variant="outlined"
                             endIcon={<OpenInNewRoundedIcon />}
                             sx={{

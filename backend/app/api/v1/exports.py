@@ -2,46 +2,89 @@
 
 Handles triggering and downloading export files.
 """
+import asyncio
 import io
 import logging
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
 from app.config import settings
+from app.execution.export_execution_service import execute_export
+from app.execution.export_task_registry import (
+    get_export_task,
+    get_export_trace_id,
+    register_export_task,
+    set_export_task_handle,
+)
 from app.models.export import Export
-from app.storage.manager import StorageManager
 from app.models.job import Job
 from app.models.run import Run
 from app.models.user import User
 from app.schemas.export import ExportCreate, ExportListResponse, ExportResponse
-from app.orchestrator.export_orchestrator import ExportOrchestrator
 from app.services.export_management_service import ExportManagementService
+from app.storage.manager import StorageManager
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def _derive_export_status(export: Export) -> str:
+    task_state = get_export_task(str(export.id))
+    if task_state:
+        return str(task_state.get("status") or "queued")
+    file_path = str(export.file_path or "").strip()
+    return "completed" if file_path else "generating"
 
-def _get_run_export():
-    try:
-        from app.queue.tasks import run_export
-    except ModuleNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Background worker dependencies are missing. Install backend requirements and restart the API.",
-        ) from exc
 
-    return run_export
+def _build_export_response(export: Export, job_name: str | None = None) -> ExportResponse:
+    task_state = get_export_task(str(export.id)) or {}
+    task_error = str(task_state.get("error") or "").strip() or None
+    return ExportResponse(
+        id=export.id,
+        export_id=export.id,
+        run_id=export.run_id,
+        result_id=export.result_id,
+        format=export.format,
+        status=_derive_export_status(export),
+        trace_id=(task_state.get("trace_id") or get_export_trace_id(str(export.id))),
+        error=task_error,
+        job_name=(job_name or "").strip(),
+        total_size_bytes=int(export.file_size or 0),
+        file_path=export.file_path or "",
+        file_size=export.file_size,
+        created_at=export.created_at,
+    )
+
+
+async def _find_reusable_export(
+    db: AsyncSession,
+    *,
+    run_id: UUID,
+    export_format: str,
+    storage: StorageManager,
+) -> Export | None:
+    stmt = (
+        select(Export)
+        .where(Export.run_id == run_id, Export.format == export_format)
+        .order_by(Export.created_at.desc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    for export in rows:
+        file_path = str(export.file_path or "").strip()
+        if file_path and storage.file_exists(file_path):
+            return export
+    return None
 
 
 @router.post(
@@ -54,11 +97,12 @@ async def create_export(
     export_data: ExportCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    api_key: str = Depends(verify_api_key),
+    api_key: str | None = Depends(verify_api_key),
+    storage: StorageManager = Depends(get_storage),
 ) -> ExportResponse:
     """Create a new export from run results.
     
-    Dispatches a Celery task to generate the export file asynchronously.
+    Dispatches an in-process async task to generate the export file.
     
     Args:
         export_data: Export configuration (run_id, format).
@@ -73,42 +117,74 @@ async def create_export(
     """
     # Verify run belongs to user
     run_stmt = (
-        select(Run)
+        select(Run, Job.url.label("job_name"))
         .join(Job, Run.job_id == Job.id)
         .where(Run.id == export_data.run_id, Job.user_id == current_user.id)
     )
     run_result = await db.execute(run_stmt)
-    run = run_result.scalar_one_or_none()
+    run_payload = run_result.first()
     
-    if not run:
+    if not run_payload:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Run not found",
         )
-    
-    # Create export record placeholder to be populated by the background worker.
-    new_export = Export(
-        run_id=export_data.run_id,
-        format=export_data.format,
-        file_path="",
+    run, job_name = run_payload
+
+    # Scraping pipeline already generates run exports (excel/pdf/word). Reuse
+    # existing file-backed exports to avoid duplicate queue jobs and DB writes.
+    reusable_export = await _find_reusable_export(
+        db,
+        run_id=run.id,
+        export_format=export_data.format,
+        storage=storage,
     )
-    
-    db.add(new_export)
-    await db.commit()
-    await db.refresh(new_export)
-    
-    # Dispatch Celery task for async export generation
-    try:
-        _get_run_export().delay(str(new_export.id), str(current_user.id))
-    except Exception as exc:
-        await db.delete(new_export)
-        await db.commit()
+    if reusable_export is not None:
+        return _build_export_response(reusable_export, job_name=job_name)
+
+    # Create export record placeholder to be populated by the background worker.
+    new_export: Export | None = None
+    for attempt in range(3):
+        try:
+            new_export = Export(
+                run_id=export_data.run_id,
+                format=export_data.format,
+                file_path="",
+            )
+            db.add(new_export)
+            await db.commit()
+            await db.refresh(new_export)
+            break
+        except OperationalError as exc:
+            await db.rollback()
+            if "database is locked" not in str(exc).lower():
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
+            reusable_export = await _find_reusable_export(
+                db,
+                run_id=run.id,
+                export_format=export_data.format,
+                storage=storage,
+            )
+            if reusable_export is not None:
+                return _build_export_response(reusable_export, job_name=job_name)
+    if new_export is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Export queue is currently unavailable. Please try again shortly.",
-        ) from exc
+            detail="Export is temporarily busy. Please try again in a few seconds.",
+        )
     
-    return ExportResponse.model_validate(new_export)
+    trace_id = str(uuid4())
+    export_id = str(new_export.id)
+    run_id = str(new_export.run_id)
+    register_export_task(export_id=export_id, run_id=run_id, trace_id=trace_id)
+    task = asyncio.create_task(
+        execute_export(export_id=export_id, run_id=run_id, trace_id=trace_id),
+        name=f"brainit-export-{export_id}",
+    )
+    set_export_task_handle(export_id, task)
+
+    return _build_export_response(new_export, job_name=job_name)
 
 
 @router.get(
@@ -146,7 +222,7 @@ async def list_exports(
     
     # Get exports
     stmt = (
-        select(Export)
+        select(Export, Job.url.label("job_name"))
         .join(Run, Export.run_id == Run.id, isouter=True)
         .join(Job, Run.job_id == Job.id, isouter=True)
         .where(Job.user_id == current_user.id)
@@ -155,9 +231,9 @@ async def list_exports(
         .limit(limit)
     )
     result = await db.execute(stmt)
-    exports = result.scalars().all()
+    exports = result.all()
     
-    export_responses = [ExportResponse.model_validate(e) for e in exports]
+    export_responses = [_build_export_response(export, job_name=job_name) for export, job_name in exports]
     
     return ExportListResponse(exports=export_responses, total=total)
 
@@ -186,21 +262,22 @@ async def get_export(
         HTTPException 404: If export not found or doesn't belong to user.
     """
     stmt = (
-        select(Export)
+        select(Export, Job.url.label("job_name"))
         .join(Run, Export.run_id == Run.id, isouter=True)
         .join(Job, Run.job_id == Job.id, isouter=True)
         .where(Export.id == export_id, Job.user_id == current_user.id)
     )
     result = await db.execute(stmt)
-    export = result.scalar_one_or_none()
+    export_payload = result.first()
     
-    if not export:
+    if not export_payload:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Export not found",
         )
+    export, job_name = export_payload
     
-    return ExportResponse.model_validate(export)
+    return _build_export_response(export, job_name=job_name)
 
 
 @router.get(
@@ -290,6 +367,7 @@ async def download_export(
 @router.post(
     "/download",
     summary="Download multiple exports",
+    dependencies=[Depends(verify_api_key)],
 )
 async def download_multiple_exports(
     export_ids: List[UUID],
@@ -319,6 +397,14 @@ async def download_multiple_exports(
 
     # De-duplicate while preserving input order.
     unique_export_ids = list(dict.fromkeys(export_ids))
+
+    if len(unique_export_ids) == 1:
+        return await download_export(
+            unique_export_ids[0],
+            db=db,
+            current_user=current_user,
+            storage=storage,
+        )
 
     # Fetch all requested exports in a single query and verify ownership.
     stmt = (
@@ -393,6 +479,7 @@ async def download_multiple_exports(
     "/{export_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete an export",
+    dependencies=[Depends(verify_api_key)],
 )
 async def delete_export(
     export_id: UUID,
@@ -438,4 +525,6 @@ async def get_export_stats(
     storage: StorageManager = Depends(get_storage),
 ):
     """Get export statistics for the current user."""
-    return await ExportManagementService.get_export_stats(db, storage, current_user.id)
+    stats = await ExportManagementService.get_export_stats(db, storage, current_user.id)
+    stats["total_size_bytes"] = int(stats.get("total_size") or 0)
+    return stats

@@ -1,0 +1,265 @@
+================================================================================
+LAYER 1A P0 - RUNTIME STABILIZATION - EXECUTION GUIDE
+================================================================================
+
+STATUS: Files modified and scripts created. Ready for execution.
+
+CHANGES APPLIED TO FILESYSTEM:
+  ✓ docker-compose.yml - Modified (network isolation, env vars)
+  ✓ .env.production - Created (secrets placeholders)
+  ✓ generate_secrets.sh - Created (secret generation)
+  ✓ layer1a_rebuild.sh - Created (full automation)
+  ✓ LAYER1A_VERIFY.md - Created (15-step verification)
+  ✓ LAYER1A_P0_APPLIED.md - Created (comprehensive summary)
+
+================================================================================
+QUICK START (5-10 MINUTES)
+================================================================================
+
+EXECUTE IN ORDER:
+
+1. Generate Strong Secrets
+   $ cd /Users/tariqalagha/Desktop/scraper-main
+   $ bash generate_secrets.sh
+   
+   This will:
+   - Generate POSTGRES_PASSWORD, REDIS_PASSWORD, SECRET_KEY, API_KEY
+   - Update .env.production with strong values
+   - Show verification
+
+2. Configure Smart Scraper URL (Choose ONE)
+   
+   OPTION A - Local Joulaa on same host:
+   $ sed -i 's|SCRAPER_BASE_URL=.*|SCRAPER_BASE_URL=http://127.0.0.1:8000|' .env.production
+   
+   OPTION B - Remote Smart Scraper:
+   $ sed -i 's|SCRAPER_BASE_URL=.*|SCRAPER_BASE_URL=http://your-host:8000|' .env.production
+   
+   OPTION C - Disable (optional):
+   $ sed -i 's|SCRAPER_BASE_URL=.*|SCRAPER_BASE_URL=|' .env.production
+
+3. Verify Secrets
+   $ grep "REPLACE_WITH" .env.production
+   
+   Should return NOTHING (no output)
+   If you see output, run step 1 again
+
+4. Run Automated Rebuild
+   $ bash layer1a_rebuild.sh
+   
+   This will:
+   - Stop existing containers
+   - Rebuild Docker images
+   - Start services
+   - Run verification checks
+   
+   Wait for completion (~2-3 minutes)
+
+5. Manual Verification (if rebuild completed)
+   $ curl -s http://127.0.0.1:8001/health | jq .status
+   
+   Expected output: "ok" or "degraded"
+   
+   If you see: "Connection refused" → services not running
+   If you see: "degraded" → check scraper service config
+
+================================================================================
+WHAT CHANGED (SUMMARY)
+================================================================================
+
+docker-compose.yml:
+  - PostgreSQL: 0.0.0.0:5432 → 127.0.0.1:5432 (localhost only)
+  - Redis: 0.0.0.0:6379 → 127.0.0.1:6379 (localhost only)
+  - Backend: 0.0.0.0:8001 → 127.0.0.1:8001 (localhost only)
+  - Redis now requires password authentication
+  - Backend has healthcheck
+  - SCRAPER_BASE_URL is configurable
+
+.env.production:
+  - New file with strong secret placeholders
+  - Database/Redis passwords from environment variables
+  - Smart Scraper URL configurable (3 options documented)
+  - All secrets must be updated from REPLACE_WITH placeholders
+
+Scripts Created:
+  - generate_secrets.sh: Generates strong secrets
+  - layer1a_rebuild.sh: Automates entire rebuild
+  - LAYER1A_VERIFY.md: Manual verification commands
+
+================================================================================
+IMPORTANT: DO NOT SKIP THIS
+================================================================================
+
+BEFORE RUNNING rebuild:
+
+1. Generate secrets:
+   $ bash generate_secrets.sh
+   
+   VERIFY no REPLACE_WITH remains:
+   $ grep "REPLACE_WITH" .env.production
+   
+   Should return NOTHING
+
+2. Set Smart Scraper URL (required for scraper service to be "ok"):
+   
+   If you have Joulaa running locally:
+   $ sed -i 's|SCRAPER_BASE_URL=.*|SCRAPER_BASE_URL=http://127.0.0.1:8000|' .env.production
+   
+   If Joulaa is running separately or on remote:
+   Update SCRAPER_BASE_URL manually in .env.production
+
+3. Verify again:
+   $ tail -20 .env.production | grep SCRAPER_BASE_URL
+
+================================================================================
+AFTER REBUILD - WHAT TO EXPECT
+================================================================================
+
+✓ All services will restart with new configuration
+✓ PostgreSQL accessible only from localhost (127.0.0.1:5432)
+✓ Redis accessible only from localhost (127.0.0.1:6379)
+✓ Backend exposed only to localhost (127.0.0.1:8001)
+✓ Secrets are strong (32+ chars)
+✓ Redis requires password to connect
+
+✓ Health check output (one of):
+  - {"status": "ok", "services": {...}}
+    OR
+  - {"status": "degraded", "services": {"database": "ok", "redis": "ok", "scraper": "unavailable"}}
+
+If scraper is "unavailable":
+  → This is OK for Layer 1A (Smart Scraper URL needs to be configured)
+  → Verify: grep SCRAPER_BASE_URL .env.production
+  → If empty or pointing to wrong host, update and restart backend
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "Connection refused" when calling health endpoint
+Solution:
+  $ docker-compose ps
+  Check if backend container is running. If not:
+  $ docker-compose logs backend
+  Look for errors in startup logs
+
+Problem: Redis health check fails
+Solution:
+  $ docker-compose logs redis
+  Verify redis started with password. Check .env.production REDIS_PASSWORD value
+
+Problem: PostgreSQL not connecting
+Solution:
+  $ docker exec scraper-postgres pg_isready -U scraper
+  If fails, check POSTGRES_PASSWORD in .env.production
+
+Problem: Secrets still show REPLACE_WITH after running generate_secrets.sh
+Solution:
+  $ bash generate_secrets.sh
+  # If still shows REPLACE_WITH, check sed compatibility (macOS vs Linux)
+  # Manual fix: Open .env.production, find/replace REPLACE_WITH values manually
+
+Problem: Smart Scraper shows "unavailable" but it's running
+Solution:
+  $ grep "SCRAPER_BASE_URL" .env.production
+  Verify URL is correct and accessible
+  Test from backend container:
+  $ docker exec scraper-backend curl -s http://SCRAPER_URL/health
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+Run these commands to verify Layer 1A was successful:
+
+[ ] 1. Secrets strong
+    $ grep -E "^(POSTGRES_PASSWORD|REDIS_PASSWORD|SECRET_KEY)=" .env.production | wc -l
+    Expected: 3 lines, each 20+ characters
+
+[ ] 2. PostgreSQL isolated
+    $ docker port scraper-postgres 5432
+    Expected: 127.0.0.1:5432 (NOT 0.0.0.0)
+
+[ ] 3. Redis isolated
+    $ docker port scraper-redis 6379
+    Expected: 127.0.0.1:6379 (NOT 0.0.0.0)
+
+[ ] 4. Backend isolated
+    $ docker port scraper-backend 8000
+    Expected: 127.0.0.1:8001 (NOT 0.0.0.0)
+
+[ ] 5. Redis requires password
+    $ docker exec scraper-redis redis-cli -a wrong-pass ping 2>&1 | grep "WRONGPASS"
+    Expected: Output shows WRONGPASS (auth enforced)
+
+[ ] 6. Backend responds
+    $ curl -s http://127.0.0.1:8001/health | jq '.status'
+    Expected: "ok" or "degraded"
+
+[ ] 7. API key auth works
+    $ curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8001/api/v1/scrape \
+        -H "X-API-Key: wrong" \
+        -H "Content-Type: application/json" \
+        -d '{"url":"http://example.com","query":"test","location":"main","fields":["test"]}'
+    Expected: 401 or 403 (wrong key rejected)
+
+[ ] 8. .env.production not in git
+    $ git status | grep .env.production
+    Expected: (no output = not tracked)
+
+[ ] 9. Secrets not exposed in container
+    $ docker exec scraper-backend env | grep "your-super-secret\|dev-api-key"
+    Expected: (no output = not exposed)
+
+[ ] 10. HMS extraction flow unchanged
+    $ docker exec scraper-backend ls -la /app/backend/app/services/ | grep -i hms
+    Expected: (HMS files exist - logic untouched)
+
+If all checks pass → Layer 1A P0 is successful ✓
+
+================================================================================
+NEXT STEPS (LAYER 1B - WHEN READY)
+================================================================================
+
+Layer 1A complete. When ready for Layer 1B (P1 fixes), we will:
+  - Update Dockerfile with non-root user
+  - Fix CORS security
+  - Initialize database migrations
+  - Add WebSocket authentication
+
+For now, Layer 1A runtime is stable for testing HMS extraction flow.
+
+================================================================================
+FILE SUMMARY
+================================================================================
+
+Location: /Users/tariqalagha/Desktop/scraper-main/
+
+Key Files:
+  docker-compose.yml ............... Modified (network isolation)
+  .env.production .................. Created (secrets + config)
+  generate_secrets.sh .............. Created (run this first)
+  layer1a_rebuild.sh ............... Created (run this to deploy)
+  LAYER1A_VERIFY.md ................ Created (verification guide)
+  LAYER1A_P0_APPLIED.md ............ Created (detailed summary)
+  LAYER1A_EXECUTE.txt .............. This file
+
+Original files backed up:
+  docker-compose.yml.bak ........... Available if needed
+
+================================================================================
+READY TO EXECUTE
+================================================================================
+
+All files are in place. To activate Layer 1A P0:
+
+$ cd /Users/tariqalagha/Desktop/scraper-main
+$ bash generate_secrets.sh
+$ sed -i 's|SCRAPER_BASE_URL=.*|SCRAPER_BASE_URL=http://127.0.0.1:8000|' .env.production
+$ bash layer1a_rebuild.sh
+
+Total time: ~5-10 minutes
+
+Questions: See LAYER1A_VERIFY.md for detailed command-by-command guide
+
+================================================================================

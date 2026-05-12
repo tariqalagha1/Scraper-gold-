@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: scraper-postgres
+    environment:
+      POSTGRES_USER: scraper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: scraper
+    ports:
+      - "127.0.0.1:5432:5432"  # FIXED: Bind to localhost only
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scraper"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scraper-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: scraper-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}  # FIXED: Add auth
+    ports:
+      - "127.0.0.1:6379:6379"  # FIXED: Bind to localhost only
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scraper-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: scraper-backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scraper:${POSTGRES_PASSWORD}@postgres:5432/scraper
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CORS_ORIGINS: '["https://yourdomain.com"]'
+      DEBUG: "false"
+      ENVIRONMENT: "production"
+    ports:
+      - "127.0.0.1:8000:8000"  # FIXED: Bind to localhost only
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: >
+      sh -c "alembic upgrade head && 
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-server-header"
+    networks:
+      - scraper-network
+
+  scraper-smart:
+    image: scraper-smart:latest  # FIXED: Add missing Smart Scraper service
+    container_name: scraper-smart
+    environment:
+      API_KEY: ${SCRAPER_API_KEY}
+      DATABASE_URL: postgresql+asyncpg://scraper:${POSTGRES_PASSWORD}@postgres:5432/scraper
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scraper-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: scraper-frontend
+    restart: unless-stopped
+    environment:
+      REACT_APP_API_URL: https://yourdomain.com/api/v1  # FIXED: HTTPS in prod
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"  # FIXED: Bind to localhost only
+    networks:
+      - scraper-network
+
+volumes:
+  postgres_data:
+
+networks:
+  scraper-network:
+    driver: bridge

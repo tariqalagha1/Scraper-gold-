@@ -1,1 +1,1 @@
-"""FAISS vector system package."""
+"""PGVector vector system package."""

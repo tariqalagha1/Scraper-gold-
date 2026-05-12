@@ -17,7 +17,36 @@ logger = get_logger("app.middleware.rate_limit")
 _redis_client: Redis | None = None
 
 
+def _new_redis_client() -> Redis:
+    return Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_timeout=settings.REDIS_CONNECT_TIMEOUT,
+        socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT,
+    )
+
+
+async def _close_redis_client() -> None:
+    global _redis_client
+    if _redis_client is None:
+        return
+    try:
+        close_method = getattr(_redis_client, "aclose", None)
+        if callable(close_method):
+            await close_method()
+        else:
+            await _redis_client.close()
+    except Exception:
+        pass
+    finally:
+        _redis_client = None
+
+
 def _resolve_route_limit(request: Request) -> tuple[int, int, str]:
+    if request.method == "POST" and request.url.path.endswith("/auth/login"):
+        return settings.AUTH_LOGIN_RATE_LIMIT, settings.AUTH_LOGIN_RATE_WINDOW_SECONDS, "auth-login"
+    if request.method == "POST" and request.url.path.endswith("/auth/register"):
+        return settings.AUTH_REGISTER_RATE_LIMIT, settings.AUTH_REGISTER_RATE_WINDOW_SECONDS, "auth-register"
     if request.method == "POST" and (request.url.path.endswith("/runs") or request.url.path.endswith("/retry")):
         return settings.RUN_CREATE_RATE_LIMIT, settings.RUN_CREATE_RATE_WINDOW_SECONDS, "run-write"
     if request.method == "POST" and request.url.path.endswith("/jobs"):
@@ -43,20 +72,14 @@ def _get_rate_window() -> int:
         return 60
 
 
-async def get_redis() -> Redis | None:
+async def get_redis(*, force_recreate: bool = False) -> Redis:
     global _redis_client
-    try:
-        if _redis_client is None:
-            redis_url = settings.REDIS_URL
-            _redis_client = Redis.from_url(
-                redis_url,
-                decode_responses=True,
-                socket_timeout=settings.REDIS_CONNECT_TIMEOUT,
-                socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT,
-            )
-        return _redis_client
-    except Exception:
-        return None
+    if force_recreate:
+        await _close_redis_client()
+
+    if _redis_client is None:
+        _redis_client = _new_redis_client()
+    return _redis_client
 
 
 def _resolve_identifier(request: Request) -> str:
@@ -85,8 +108,21 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
 
         try:
             client = await get_redis()
-            if client is None:
-                return await call_next(request)
+            try:
+                await client.ping()
+            except RuntimeError as exc:
+                # Test and worker lifecycles may close event loops while leaving a cached
+                # client object behind; recreate and retry once before failing closed.
+                if "event loop is closed" in str(exc).lower():
+                    logger.warning(
+                        "Rate limiter redis client loop closed; recreating client.",
+                        path=str(request.url.path),
+                        method=request.method,
+                    )
+                    client = await get_redis(force_recreate=True)
+                    await client.ping()
+                else:
+                    raise
 
             rate_limit, rate_window, route_scope = _resolve_route_limit(request)
             bucket = int(time() // rate_window)
@@ -104,6 +140,16 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
                 "window": rate_window,
             }
             if current > rate_limit:
+                logger.warning(
+                    "Rate limit exceeded.",
+                    path=str(request.url.path),
+                    method=request.method,
+                    identifier=identifier,
+                    route_scope=route_scope,
+                    limit=rate_limit,
+                    window=rate_window,
+                    current=current,
+                )
                 return JSONResponse(
                     status_code=429,
                     content={
@@ -114,7 +160,27 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
                         }
                     },
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            if settings.ENVIRONMENT == "development":
+                logger.warning(
+                    "Rate limiting backend unavailable in development; continuing without rate limit enforcement.",
+                    path=str(request.url.path),
+                    method=request.method,
+                    error=str(exc),
+                )
+                return await call_next(request)
+            logger.error(
+                "Rate limiting service unavailable.",
+                path=str(request.url.path),
+                method=request.method,
+                error=str(exc),
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "service_unavailable",
+                    "message": "Rate limiting service unavailable",
+                },
+            )
 
         return await call_next(request)

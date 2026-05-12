@@ -35,7 +35,12 @@ class ProcessingAgent(BaseAgent):
 
         source_url = self._resolve_source_url(input_data, extracted, data)
         semantic_markdown = self._resolve_semantic_markdown(input_data)
+        max_records = self._resolve_max_records(input_data.get("max_records"))
+        record_fields = self._resolve_record_fields(input_data.get("record_fields"))
         structured_records = self._normalize_structured_records(data.get("records", []), source_url)
+        structured_records = self._apply_record_field_selection(structured_records, record_fields)
+        if max_records is not None:
+            structured_records = structured_records[:max_records]
 
         title_value = self._safe_text(data.get("title", {}).get("value") if isinstance(data.get("title"), dict) else "")
         cleaned_paragraphs = [
@@ -292,3 +297,74 @@ class ProcessingAgent(BaseAgent):
             })
 
         return normalized
+
+    def _resolve_max_records(self, value: Any) -> int | None:
+        try:
+            if value is None:
+                return None
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        if normalized <= 0:
+            return None
+        return normalized
+
+    def _resolve_record_fields(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[str] = []
+        for item in value:
+            field = str(item or "").strip().lower()
+            if not field:
+                continue
+            if field == "names":
+                field = "name"
+            if field not in normalized:
+                normalized.append(field)
+        return normalized
+
+    def _apply_record_field_selection(self, records: list[dict[str, Any]], selected_fields: list[str]) -> list[dict[str, Any]]:
+        if not records or not selected_fields:
+            return records
+
+        filtered_records: list[dict[str, Any]] = []
+        for record in records:
+            filtered: dict[str, Any] = {
+                "type": record.get("type", "list_item"),
+                "source_url": record.get("source_url", ""),
+            }
+            for field in selected_fields:
+                value = self._resolve_record_value(record, field)
+                if value:
+                    filtered[field] = value
+
+            if "name" in selected_fields and not filtered.get("name"):
+                fallback_name = self._resolve_record_value(record, "title")
+                if fallback_name:
+                    filtered["name"] = fallback_name
+
+            content_parts = [str(filtered.get(field) or "").strip() for field in selected_fields]
+            filtered["content"] = clean_text(" ".join(part for part in content_parts if part))
+            filtered_records.append(filtered)
+
+        return filtered_records
+
+    def _resolve_record_value(self, record: dict[str, Any], requested_field: str) -> str:
+        aliases = {
+            "name": ("name", "full_name", "patient_name", "title"),
+            "phone_number": ("phone_number", "phone", "mobile", "contact"),
+            "national_id": ("national_id", "id_number", "identity_number"),
+            "registration_no": ("registration_no", "mrn", "record_no"),
+            "title": ("title", "name"),
+            "status": ("status",),
+            "age": ("age",),
+            "gender": ("gender", "sex"),
+            "link": ("link", "url"),
+            "source_url": ("source_url", "url"),
+        }
+        candidate_keys = aliases.get(requested_field, (requested_field,))
+        for key in candidate_keys:
+            text = clean_text(str(record.get(key) or ""))
+            if text:
+                return text
+        return ""

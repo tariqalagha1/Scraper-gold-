@@ -75,7 +75,7 @@ class DashboardOrchestrator:
         activities = []
 
         # Recent runs
-        run_query = select(Run, Job.name.label("job_name")).join(Job).where(
+        run_query = select(Run, Job.url.label("job_name")).join(Job).where(
             Job.user_id == user_id
         ).order_by(Run.created_at.desc()).limit(limit)
 
@@ -90,7 +90,7 @@ class DashboardOrchestrator:
             })
 
         # Recent exports
-        export_query = select(Export, Job.name.label("job_name")).join(Run).join(Job).where(
+        export_query = select(Export, Job.url.label("job_name")).join(Run).join(Job).where(
             Job.user_id == user_id
         ).order_by(Export.created_at.desc()).limit(limit)
 

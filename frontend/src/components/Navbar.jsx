@@ -1,12 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded';
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import PsychologyRoundedIcon from '@mui/icons-material/PsychologyRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import KeyRoundedIcon from '@mui/icons-material/KeyRounded';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useAuth } from '../context/AuthContext';
+import { dashboardNavItems } from '../config/dashboardRegistry';
 
 const navLinkClass = ({ isActive }) =>
   `rounded-xl border px-4 py-2 text-xs font-label uppercase tracking-[0.22em] transition ${
@@ -15,13 +23,44 @@ const navLinkClass = ({ isActive }) =>
       : 'border-transparent text-onSurfaceVariant hover:border-outlineVariant/20 hover:bg-white/5 hover:text-primary'
   }`;
 
+const mobileNavLinkClass = ({ isActive }) =>
+  `rounded-xl border px-4 py-2 text-xs font-label uppercase tracking-[0.18em] transition ${
+    isActive
+      ? 'border-primary/30 bg-accentSoft text-primary shadow-glow'
+      : 'border-outlineVariant/15 text-onSurfaceVariant hover:border-outlineVariant/20 hover:bg-white/5 hover:text-primary'
+  }`;
+
+const navIcons = {
+  dashboard: PlayArrowRoundedIcon,
+  history: HistoryRoundedIcon,
+  workspace: WorkspacesRoundedIcon,
+  exports: DownloadRoundedIcon,
+  demo: InsightsRoundedIcon,
+  account: PersonRoundedIcon,
+  'api-keys': KeyRoundedIcon,
+  settings: SettingsSuggestRoundedIcon,
+  'ai-integrations': PsychologyRoundedIcon,
+  'system-keys': KeyRoundedIcon,
+};
+
 const Navbar = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = () => {
+    setMobileMenuOpen(false);
     logout();
     navigate('/');
+  };
+
+  const handleNavClick = () => {
+    setMobileMenuOpen(false);
+  };
+
+  const renderIcon = (key) => {
+    const IconComponent = navIcons[key] || PlayArrowRoundedIcon;
+    return <IconComponent sx={{ fontSize: 18 }} />;
   };
 
   return (
@@ -40,42 +79,39 @@ const Navbar = () => {
         </Link>
 
         {isAuthenticated ? (
-          <nav className="hidden items-center gap-2 rounded-2xl border border-outlineVariant/15 bg-surfaceContainer/70 px-2 py-2 shadow-panel md:flex">
-            <NavLink to="/dashboard" className={navLinkClass}>
-              <span className="inline-flex items-center gap-2">
-                <PlayArrowRoundedIcon sx={{ fontSize: 18 }} />
-                Dashboard
-              </span>
-            </NavLink>
-            <NavLink to="/settings" className={navLinkClass}>
-              <span className="inline-flex items-center gap-2">
-                <SettingsSuggestRoundedIcon sx={{ fontSize: 18 }} />
-                Settings
-              </span>
-            </NavLink>
-            <NavLink to="/ai-integrations" className={navLinkClass}>
-              <span className="inline-flex items-center gap-2">
-                <PsychologyRoundedIcon sx={{ fontSize: 18 }} />
-                AI Integrations
-              </span>
-            </NavLink>
-            <NavLink to="/exports" className={navLinkClass}>
-              <span className="inline-flex items-center gap-2">
-                <DownloadRoundedIcon sx={{ fontSize: 18 }} />
-                Exports
-              </span>
-            </NavLink>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-xl border border-outlineVariant/15 px-4 py-2 text-xs font-label uppercase tracking-[0.22em] text-onSurfaceVariant transition hover:border-primary/30 hover:bg-white/5 hover:text-onBackground"
-            >
-              <span className="inline-flex items-center gap-2">
-                <LogoutRoundedIcon sx={{ fontSize: 18 }} />
-                Logout
-              </span>
-            </button>
-          </nav>
+          <>
+            <nav className="hidden items-center gap-2 rounded-2xl border border-outlineVariant/15 bg-surfaceContainer/70 px-2 py-2 shadow-panel md:flex">
+              {dashboardNavItems.map((item) => (
+                <NavLink key={item.key} to={item.route} className={navLinkClass}>
+                  <span className="inline-flex items-center gap-2">
+                    {renderIcon(item.key)}
+                    {item.label}
+                  </span>
+                </NavLink>
+              ))}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-xl border border-outlineVariant/15 px-4 py-2 text-xs font-label uppercase tracking-[0.22em] text-onSurfaceVariant transition hover:border-primary/30 hover:bg-white/5 hover:text-onBackground"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <LogoutRoundedIcon sx={{ fontSize: 18 }} />
+                  Logout
+                </span>
+              </button>
+            </nav>
+
+            <div className="md:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((previous) => !previous)}
+                className="inline-flex items-center justify-center rounded-xl border border-outlineVariant/20 bg-surfaceContainer/80 px-3 py-2 text-onSurfaceVariant transition hover:border-primary/30 hover:text-primary"
+                aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              >
+                {mobileMenuOpen ? <CloseRoundedIcon sx={{ fontSize: 20 }} /> : <MenuRoundedIcon sx={{ fontSize: 20 }} />}
+              </button>
+            </div>
+          </>
         ) : (
           <div className="flex items-center gap-3">
             <Link className="font-label text-xs uppercase tracking-[0.24em] text-onSurfaceVariant transition hover:text-primary" to="/login">
@@ -90,6 +126,30 @@ const Navbar = () => {
           </div>
         )}
       </div>
+      {isAuthenticated && mobileMenuOpen && (
+        <div className="border-t border-outlineVariant/15 bg-background/95 px-6 pb-4 pt-3 shadow-panel md:hidden">
+          <nav className="flex flex-col gap-2">
+            {dashboardNavItems.map((item) => (
+              <NavLink key={item.key} to={item.route} className={mobileNavLinkClass} onClick={handleNavClick}>
+                <span className="inline-flex items-center gap-2">
+                  {renderIcon(item.key)}
+                  {item.label}
+                </span>
+              </NavLink>
+            ))}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-xl border border-outlineVariant/15 px-4 py-2 text-xs font-label uppercase tracking-[0.18em] text-onSurfaceVariant transition hover:border-primary/30 hover:bg-white/5 hover:text-onBackground"
+            >
+              <span className="inline-flex items-center gap-2">
+                <LogoutRoundedIcon sx={{ fontSize: 18 }} />
+                Logout
+              </span>
+            </button>
+          </nav>
+        </div>
+      )}
     </header>
   );
 };

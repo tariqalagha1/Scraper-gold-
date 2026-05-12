@@ -145,7 +145,7 @@ async def test_scraper_agent_stops_pagination_for_detail_pages(isolated_storage,
                 "config": {
                     "respect_robots_txt": False,
                     "wait_until": "domcontentloaded",
-                    "follow_pagination": True,
+                    "follow_pagination": False,
                     "max_pages": 2,
                 },
             }
@@ -155,6 +155,65 @@ async def test_scraper_agent_stops_pagination_for_detail_pages(isolated_storage,
         assert result["status"] == "success"
         assert len(result["data"]["pages"]) == 1
         assert result["data"]["pages"][0]["final_url"].endswith("/index.html")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+async def test_scraper_agent_allows_explicit_pagination_for_detail_classification(isolated_storage, tmp_path):
+    site_dir = tmp_path / "detail-explicit-pagination-site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "index.html").write_text(
+        """
+        <html>
+          <body>
+            <article><h1>Detail-Like First Page</h1></article>
+            <a href="/page2.html">Next</a>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    (site_dir / "page2.html").write_text(
+        """
+        <html>
+          <body>
+            <article><h1>Second Page</h1></article>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    handler = partial(SimpleHTTPRequestHandler, directory=str(site_dir))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page_url = f"http://127.0.0.1:{server.server_port}/index.html"
+
+    try:
+        agent = ScraperAgent()
+        result = await agent.safe_execute(
+            {
+                "url": page_url,
+                "run_id": "detail-explicit-pagination-run",
+                "strategy": {"page_type": "detail"},
+                "config": {
+                    "respect_robots_txt": False,
+                    "wait_until": "domcontentloaded",
+                    "post_navigation_wait_until": "domcontentloaded",
+                    "follow_pagination": True,
+                    "max_pages": 2,
+                },
+            }
+        )
+        await agent.browser_manager.close()
+
+        assert result["status"] == "success"
+        assert len(result["data"]["pages"]) == 2
+        assert result["data"]["pages"][0]["final_url"].endswith("/index.html")
+        assert result["data"]["pages"][1]["final_url"].endswith("/page2.html")
     finally:
         server.shutdown()
         server.server_close()
@@ -440,9 +499,10 @@ async def test_scraper_agent_stops_detail_drill_on_duplicate_title(isolated_stor
         await agent.browser_manager.close()
 
         assert result["status"] == "success"
-        assert len(result["data"]["pages"]) == 2
+        assert len(result["data"]["pages"]) == 3
         assert result["data"]["pages"][0]["final_url"].endswith("/index.html")
         assert result["data"]["pages"][1]["final_url"].endswith("/item-1.html")
+        assert result["data"]["pages"][2]["final_url"].endswith("/item-3.html")
     finally:
         server.shutdown()
         server.server_close()

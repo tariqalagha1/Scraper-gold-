@@ -59,7 +59,25 @@ scripts/    helper scripts and local validation utilities
 
 ## Quick Start
 
-### 1. Frontend
+### Recommended (single command)
+
+```bash
+./scripts/dev-up.sh
+```
+
+This starts:
+- Backend API on `http://127.0.0.1:8001`
+- Frontend on `http://127.0.0.1:43102`
+- Shared dev API key: `dev-api-key-change-me`
+- Redis preflight (probes local ports `6379/6380/46379` and auto-attempts `docker compose up -d redis` when needed)
+
+Stop both with:
+
+```bash
+./scripts/dev-down.sh
+```
+
+### 1. Frontend (manual)
 
 ```bash
 cd frontend
@@ -67,7 +85,7 @@ npm install
 npm start
 ```
 
-### 2. Backend
+### 2. Backend (manual)
 
 ```bash
 cd backend

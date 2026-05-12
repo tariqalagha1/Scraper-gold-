@@ -158,7 +158,7 @@ def _build_handler() -> logging.Handler:
     else:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+                "[%(name)s] [%(levelname)s] %(message)s",
                 datefmt="%Y-%m-%dT%H:%M:%S%z",
             )
         )

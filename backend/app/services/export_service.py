@@ -1,15 +1,18 @@
 """Compatibility helpers for export persistence."""
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.execution.export_execution_service import execute_export
+from app.execution.export_task_registry import register_export_task, set_export_task_handle
 from app.models.export import Export
 from app.models.job import Job
 from app.models.run import Run
-from app.queue.tasks import run_export
 from app.schemas.export import ExportCreate
 
 
@@ -35,7 +38,14 @@ async def create_export(
     await db.commit()
     await db.refresh(export)
 
-    run_export.delay(str(export.id), str(user_id))
+    export_id = str(export.id)
+    trace_id = str(uuid4())
+    register_export_task(export_id=export_id, run_id=str(run.id), trace_id=trace_id)
+    task = asyncio.create_task(
+        execute_export(export_id=export_id, run_id=str(run.id), trace_id=trace_id),
+        name=f"brainit-export-{export_id}",
+    )
+    set_export_task_handle(export_id, task)
     return export
 
 

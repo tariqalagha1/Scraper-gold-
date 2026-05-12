@@ -128,7 +128,14 @@ describe('JobDetailPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start Run' }));
     });
 
-    await waitFor(() => expect(api.startJobRun).toHaveBeenCalledWith('job-1'));
+    await waitFor(() =>
+      expect(api.startJobRun).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          job: expect.objectContaining({ id: 'job-1' }),
+        })
+      )
+    );
     expect(api.getRunsByJob).toHaveBeenCalledTimes(2);
   });
 

@@ -20,6 +20,8 @@ import { extractApiErrorMessage } from '../services/api';
 
 const LOGIN_REQUIRED_MESSAGE = 'Enter a valid email and password to sign in.';
 const REGISTER_REQUIRED_MESSAGE = 'Enter a valid email and password to create your account.';
+const EMAIL_FORMAT_MESSAGE = 'Please enter a full email address (example: name@example.com).';
+const isValidEmailAddress = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 const normalizeAuthError = (err, isRegisterMode) => {
   const friendlyMessage = extractApiErrorMessage(err, '');
@@ -103,11 +105,17 @@ const LoginPage = () => {
     event.preventDefault();
     setError('');
     const normalizedEmail = email.trim();
+    const canonicalEmail = normalizedEmail.toLowerCase();
     const normalizedPassword = password.trim();
     const normalizedConfirmPassword = confirmPassword.trim();
 
     if (!normalizedEmail || !normalizedPassword) {
       setError(isRegisterMode ? REGISTER_REQUIRED_MESSAGE : LOGIN_REQUIRED_MESSAGE);
+      return;
+    }
+
+    if (!isValidEmailAddress(canonicalEmail)) {
+      setError(EMAIL_FORMAT_MESSAGE);
       return;
     }
 
@@ -125,8 +133,8 @@ const LoginPage = () => {
 
     try {
       const result = isRegisterMode
-        ? await register({ email: normalizedEmail, password: normalizedPassword })
-        : await login(normalizedEmail, normalizedPassword);
+        ? await register({ email: canonicalEmail, password: normalizedPassword })
+        : await login(canonicalEmail, normalizedPassword);
 
       if (!result.success) {
         setError(result.error || (isRegisterMode ? 'Registration failed' : 'Login failed'));

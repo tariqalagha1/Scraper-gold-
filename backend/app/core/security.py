@@ -5,6 +5,7 @@ creation/validation using python-jose.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -81,6 +82,8 @@ def create_access_token(
     to_encode.update({
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "type": "access",
+        "jti": str(uuid4()),
     })
     
     encoded_jwt = jwt.encode(
@@ -92,7 +95,7 @@ def create_access_token(
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str, *, expected_type: str | None = "access") -> Dict[str, Any]:
     """Decode and validate a JWT access token.
     
     Args:
@@ -117,6 +120,19 @@ def decode_access_token(token: str) -> Dict[str, Any]:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
+        token_subject = str(payload.get("sub") or "").strip()
+        if not token_subject:
+            raise AuthenticationError(
+                message="Could not validate credentials",
+                details={"error": "Token subject is missing"},
+            )
+
+        token_type = str(payload.get("type") or "access").strip().lower()
+        if expected_type is not None and token_type != expected_type.lower():
+            raise AuthenticationError(
+                message="Could not validate credentials",
+                details={"error": f"Unexpected token type: {token_type}"},
+            )
         return payload
     except JWTError as e:
         raise AuthenticationError(
@@ -172,6 +188,6 @@ def get_token_payload(token: str) -> Optional[Dict[str, Any]]:
         Dictionary of claims if valid, None otherwise.
     """
     try:
-        return decode_access_token(token)
+        return decode_access_token(token, expected_type=None)
     except AuthenticationError:
         return None

@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import SettingsPage from './SettingsPage';
 import api from '../services/api';
 
@@ -12,6 +13,13 @@ jest.mock('../services/api', () => ({
     clearAllUserData: jest.fn(),
   },
 }));
+
+const renderSettingsPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/settings']}>
+      <SettingsPage />
+    </MemoryRouter>
+  );
 
 describe('SettingsPage', () => {
   const originalLocation = window.location;
@@ -47,7 +55,7 @@ describe('SettingsPage', () => {
       freed_space_mb: 3.2,
     });
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(await screen.findByText('Storage & Privacy')).toBeInTheDocument();
     await waitFor(() =>
@@ -73,7 +81,7 @@ describe('SettingsPage', () => {
       freed_space_mb: 3.2,
     });
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(await screen.findByText('Storage & Privacy')).toBeInTheDocument();
     await waitFor(() =>
@@ -104,7 +112,7 @@ describe('SettingsPage', () => {
         })
     );
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(await screen.findByText('Storage & Privacy')).toBeInTheDocument();
     await waitFor(() =>
@@ -131,7 +139,7 @@ describe('SettingsPage', () => {
   test('clear all timeout leaves session intact and shows an error', async () => {
     api.clearAllUserData.mockRejectedValue(new Error('Network timeout'));
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(await screen.findByText('Storage & Privacy')).toBeInTheDocument();
     await waitFor(() =>
@@ -147,5 +155,19 @@ describe('SettingsPage', () => {
 
     expect(localStorage.getItem('access_token')).toBe('test-token');
     expect(window.location.href).toBe('http://localhost/settings');
+  });
+
+  test('escape closes the confirmation modal', async () => {
+    renderSettingsPage();
+
+    expect(await screen.findByText('Storage & Privacy')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Clear History' })[0]).not.toBeDisabled()
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear History' })[0]);
+    expect(screen.getByText('Are you sure?')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('Are you sure?')).not.toBeInTheDocument());
   });
 });

@@ -1,75 +1,229 @@
-/**
- * Results table component to display scraped results.
- */
-import React from 'react';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
+import React, { useMemo, useState } from 'react';
+import { EmptyState } from './ui';
 
-const ResultsTable = ({ results }) => {
-  const normalizedResults = (results || []).map((result, index) => {
-    const data = result?.data_json && typeof result.data_json === 'object' ? result.data_json : result || {};
-    return {
-      id: result?.id || `record-${index + 1}`,
-      data_type: result?.data_type || 'record',
-      data_json: data,
-    };
+const MAX_COLUMNS = 10;
+const focusClass = 'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-slate-950';
+
+const asObjectRows = (results = []) => {
+  if (!Array.isArray(results)) return [];
+
+  const rows = [];
+
+  results.forEach((entry, index) => {
+    if (!entry) return;
+
+    if (entry.data_json && typeof entry.data_json === 'object') {
+      const payload = entry.data_json;
+      if (Array.isArray(payload.items) && payload.items.length > 0) {
+        payload.items.forEach((item, itemIndex) => {
+          if (item && typeof item === 'object') {
+            rows.push({
+              __id: `${entry.id || index}-item-${itemIndex}`,
+              __type: entry.data_type || 'record',
+              ...item,
+            });
+          }
+        });
+        return;
+      }
+
+      rows.push({
+        __id: String(entry.id || `result-${index}`),
+        __type: entry.data_type || 'record',
+        ...payload,
+      });
+      return;
+    }
+
+    if (typeof entry === 'object') {
+      rows.push({
+        __id: String(entry.id || `row-${index}`),
+        __type: entry.data_type || 'record',
+        ...entry,
+      });
+    }
   });
 
-  if (!normalizedResults || normalizedResults.length === 0) {
+  return rows;
+};
+
+const stringify = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const compareValues = (left, right) => {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+  return String(left || '').localeCompare(String(right || ''), undefined, { sensitivity: 'base' });
+};
+
+const ResultsTable = ({ results = [] }) => {
+  const [search, setSearch] = useState('');
+  const [filterField, setFilterField] = useState('all');
+  const [sortField, setSortField] = useState('');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const rows = useMemo(() => asObjectRows(results), [results]);
+
+  const columns = useMemo(() => {
+    const set = new Set();
+    rows.forEach((row) => {
+      Object.keys(row)
+        .filter((key) => !key.startsWith('__'))
+        .forEach((key) => set.add(key));
+    });
+    return Array.from(set).slice(0, MAX_COLUMNS);
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    const matchingRows = rows.filter((row) => {
+      if (!normalizedSearch) return true;
+
+      const sourceValues =
+        filterField === 'all'
+          ? Object.entries(row)
+              .filter(([key]) => !key.startsWith('__'))
+              .map(([, value]) => stringify(value))
+          : [stringify(row[filterField])];
+
+      return sourceValues.some((value) => value.toLowerCase().includes(normalizedSearch));
+    });
+
+    if (!sortField) {
+      return matchingRows;
+    }
+
+    return [...matchingRows].sort((left, right) => {
+      const delta = compareValues(left[sortField], right[sortField]);
+      return sortDirection === 'asc' ? delta : -delta;
+    });
+  }, [rows, search, filterField, sortField, sortDirection]);
+
+  if (rows.length === 0) {
     return (
-      <Paper sx={{ p: 3, borderRadius: 4, bgcolor: 'rgba(28, 31, 35, 0.84)', border: '1px solid rgba(79, 69, 58, 0.5)', boxShadow: 'none' }}>
-        <Stack spacing={1}>
-          <Typography variant="h6" sx={{ color: '#E2E2E3' }}>No results yet</Typography>
-          <Typography color="text.secondary" sx={{ color: 'rgba(226, 226, 227, 0.72)' }}>
-            When the run finds matching data, it will appear here in a table you can review and export.
-          </Typography>
-        </Stack>
-      </Paper>
+      <EmptyState
+        title="No records yet."
+        description="Run a request to generate a results table."
+      />
     );
   }
 
-  // Get all unique keys from results
-  const allKeys = [...new Set(normalizedResults.flatMap((r) => Object.keys(r.data_json || {})))];
-
   return (
-    <TableContainer component={Paper} sx={{ borderRadius: 4, bgcolor: 'rgba(28, 31, 35, 0.84)', border: '1px solid rgba(79, 69, 58, 0.5)', boxShadow: 'none' }}>
-      <Stack direction="row" spacing={1} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'rgba(79, 69, 58, 0.45)' }} flexWrap="wrap" useFlexGap>
-        <Chip label={`${normalizedResults.length} rows`} size="small" variant="outlined" sx={{ color: '#E2E2E3', borderColor: 'rgba(79, 69, 58, 0.5)' }} />
-        <Chip label={`${Math.min(allKeys.length, 5)} visible fields`} size="small" variant="outlined" />
-      </Stack>
-      <Table sx={{ '& .MuiTableCell-root': { color: '#E2E2E3', borderColor: 'rgba(79, 69, 58, 0.35)' } }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>ID</TableCell>
-            <TableCell>Type</TableCell>
-            {allKeys.slice(0, 5).map((key) => (
-              <TableCell key={key}>{key}</TableCell>
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1">
+          <label htmlFor="results-table-search" className="text-xs uppercase tracking-wide text-slate-400">
+            Search
+          </label>
+          <input
+            id="results-table-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search records"
+            className={`w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 ${focusClass}`}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="results-table-field" className="text-xs uppercase tracking-wide text-slate-400">
+            Filter field
+          </label>
+          <select
+            id="results-table-field"
+            value={filterField}
+            onChange={(event) => setFilterField(event.target.value)}
+            className={`w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 ${focusClass}`}
+          >
+            <option value="all">Search all fields</option>
+            {columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
             ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {normalizedResults.map((result) => (
-            <TableRow key={result.id}>
-              <TableCell>{result.id}</TableCell>
-              <TableCell>{result.data_type}</TableCell>
-              {allKeys.slice(0, 5).map((key) => (
-                <TableCell key={key}>
-                  {String(result.data_json?.[key] || '').substring(0, 100)}
-                </TableCell>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="results-table-sort" className="text-xs uppercase tracking-wide text-slate-400">
+            Sort by
+          </label>
+          <select
+            id="results-table-sort"
+            value={sortField}
+            onChange={(event) => setSortField(event.target.value)}
+            className={`w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 ${focusClass}`}
+          >
+            <option value="">No sorting</option>
+            {columns.map((column) => (
+              <option key={column} value={column}>
+                Sort by {column}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="results-table-direction" className="text-xs uppercase tracking-wide text-slate-400">
+            Direction
+          </label>
+          <select
+            id="results-table-direction"
+            value={sortDirection}
+            onChange={(event) => setSortDirection(event.target.value)}
+            className={`w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 ${focusClass}`}
+          >
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-slate-950">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-white/10 text-sm">
+            <thead className="bg-slate-900/60">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-slate-300">#</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300">Type</th>
+                {columns.map((column) => (
+                  <th key={column} className="px-3 py-2 text-left font-medium text-slate-300">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {filteredRows.map((row, index) => (
+                <tr key={row.__id || index} className="hover:bg-slate-900/40">
+                  <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                  <td className="px-3 py-2 text-slate-300">{row.__type || 'record'}</td>
+                  {columns.map((column) => (
+                    <td key={`${row.__id}-${column}`} className="max-w-[320px] px-3 py-2 text-slate-200">
+                      <span className="block truncate" title={stringify(row[column])}>
+                        {stringify(row[column]) || '-'}
+                      </span>
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+            </tbody>
+          </table>
+        </div>
+
+        {filteredRows.length === 0 && (
+          <p className="px-4 py-8 text-center text-sm text-slate-400">
+            No rows matched your current search/filter settings.
+          </p>
+        )}
+      </div>
+    </div>
   );
 };
 

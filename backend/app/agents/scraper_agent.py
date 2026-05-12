@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from bs4 import BeautifulSoup
 from httpx import HTTPError
+from pydantic import ValidationError as PydanticValidationError
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
@@ -23,13 +24,27 @@ from app.core.security_guard import (
     validate_scrape_url,
 )
 from app.core.retry import RetryConfig, retry_with_config
+from app.schemas.scraper import (
+    BrainItScrapeTaskRequest,
+    ScraperAgentInsights,
+    ScraperAgentMetadata,
+    ScraperAgentNormalizedResult,
+    ScraperAgentOutputPayload,
+    ScraperAgentSummary,
+    ScraperExecutionStep,
+    ScraperQualityMetadata,
+    ScraperSourceItem,
+)
 from app.scraper.browser import BrowserManager
 from app.scraper.login_handler import LoginHandler
 from app.scraper.page_navigator import PageNavigator
 from app.scraper.rate_limiter import RateLimiter
 from app.scraper.robots_checker import RobotsChecker
 from app.scraper.extraction_patterns import normalize_href
+from app.services.scraper_client import ScraperClient, ScraperClientError
+from app.services.system_secrets import get_effective_system_secret
 from app.storage.manager import StorageManager
+from app.db.session import async_session_factory
 
 
 logger = get_logger("app.agents.scraper_agent")
@@ -43,11 +58,15 @@ STEALTH_USER_AGENTS = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
 )
 STEALTH_ACCEPT_LANGUAGES = ("en-US,en;q=0.9", "en-GB,en;q=0.9", "en-US,en;q=0.8,ar;q=0.2")
+ALLOWED_PAGINATION_TYPES = {"auto", "next", "load_more", "scroll"}
+ALLOWED_PAGE_EXPANSION_MODES = {"main_only", "same_domain", "connected_external"}
+MAX_LINKED_PAGE_WORKERS = 16
 
 
 class ScraperAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__(agent_name="scraper_agent")
+        self.scraper_client = ScraperClient.from_settings()
         self.browser_manager = BrowserManager()
         self.login_handler = LoginHandler()
         self.page_navigator = PageNavigator()
@@ -56,6 +75,9 @@ class ScraperAgent(BaseAgent):
         self.storage_manager = StorageManager()
 
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
+        if self._is_remote_scrape_task(input_data):
+            return await self._execute_remote_scrape_task(input_data)
+
         validation_error = self.validate_required_fields(input_data, ["url"])
         if validation_error:
             return self._failure_payload(url=input_data.get("url", ""), error=validation_error)
@@ -186,7 +208,7 @@ class ScraperAgent(BaseAgent):
                 config=runtime_config,
                 strategy=strategy,
             )
-            pagination_type = str(runtime_config.get("pagination_type", "auto") or "auto")
+            pagination_type = self._resolve_pagination_type(runtime_config.get("pagination_type"))
             detail_page_limit = self._resolve_detail_page_limit(
                 config=runtime_config,
                 strategy=strategy,
@@ -200,9 +222,8 @@ class ScraperAgent(BaseAgent):
             pages: list[dict[str, Any]] = []
             seen_snapshots: set[tuple[str, str]] = set()
             seen_urls: set[str] = set()
+            detail_urls_seen: set[str] = set()
             detail_urls: list[str] = []
-            detail_titles_seen: set[str] = set()
-            current_target_kind = "listing"
 
             while len(pages) < max_pages:
                 page_payload = await self._capture_page_snapshot(
@@ -224,52 +245,24 @@ class ScraperAgent(BaseAgent):
                 seen_urls.add(page_payload["final_url"])
                 pages.append(page_payload)
 
-                if follow_detail_pages and len(pages) == 1:
-                    detail_urls = await self._collect_detail_urls(
+                if follow_detail_pages and len(detail_urls) < detail_page_limit:
+                    discovered_detail_urls = await self._collect_detail_urls(
                         page=page,
                         strategy=strategy,
                         config=runtime_config,
-                        seen_urls=seen_urls,
-                        limit=min(max(0, max_pages - len(pages)), detail_page_limit),
+                        seen_urls=seen_urls | detail_urls_seen,
+                        limit=max(0, detail_page_limit - len(detail_urls)),
                     )
-
-                if current_target_kind == "detail":
-                    should_stop, discard_page = self._should_stop_after_detail_capture(
-                        page_payload=page_payload,
-                        detail_stop_rule=detail_stop_rule,
-                        detail_titles_seen=detail_titles_seen,
-                    )
-                    if discard_page:
-                        pages.pop()
-                    title_signature = str(page_payload.get("title") or "").strip().lower()
-                    if title_signature and not discard_page:
-                        detail_titles_seen.add(title_signature)
-                    if should_stop:
-                        logger.info(
-                            "Stopping detail-page traversal after capture.",
-                            final_url=page_payload["final_url"],
-                            stop_rule=detail_stop_rule,
-                            discard_page=discard_page,
-                        )
-                        break
+                    for detail_url in discovered_detail_urls:
+                        if detail_url in detail_urls_seen:
+                            continue
+                        detail_urls.append(detail_url)
+                        detail_urls_seen.add(detail_url)
+                        if len(detail_urls) >= detail_page_limit:
+                            break
 
                 if len(pages) >= max_pages:
                     break
-
-                if detail_urls:
-                    next_detail_url = detail_urls.pop(0)
-                    if next_detail_url in seen_urls:
-                        continue
-                    await self._navigate_to(
-                        page,
-                        next_detail_url,
-                        self._build_detail_navigation_config(
-                            config=runtime_config,
-                            strategy=strategy,
-                        ),
-                    )
-                    current_target_kind = "detail"
-                    continue
 
                 if not follow_pagination:
                     break
@@ -292,10 +285,55 @@ class ScraperAgent(BaseAgent):
 
                 if next_page_url != page.url:
                     await self._navigate_to(page, next_page_url, runtime_config)
-                    current_target_kind = "listing"
                 else:
                     await self._wait_for_optional_selector(page, runtime_config)
-                    current_target_kind = "listing"
+
+            remaining_page_budget = max(0, max_pages - len(pages))
+            if follow_detail_pages and detail_urls and remaining_page_budget > 0:
+                detail_navigation_config = self._build_detail_navigation_config(
+                    config=runtime_config,
+                    strategy=strategy,
+                )
+                selected_detail_urls = detail_urls[: min(remaining_page_budget, detail_page_limit)]
+                detail_worker_count = self._resolve_linked_page_worker_count(
+                    config=runtime_config,
+                    strategy=strategy,
+                    detail_url_count=len(selected_detail_urls),
+                )
+                detail_start_page_index = len(pages) + 1
+                if detail_worker_count > 1:
+                    detail_pages = await self._capture_detail_pages_parallel(
+                        root_page=page,
+                        source_url=url,
+                        run_id=run_id,
+                        detail_urls=selected_detail_urls,
+                        detail_navigation_config=detail_navigation_config,
+                        start_page_index=detail_start_page_index,
+                        worker_count=detail_worker_count,
+                        undetected_mode=undetected_mode,
+                    )
+                else:
+                    detail_pages = await self._capture_detail_pages_sequential(
+                        page=page,
+                        source_url=url,
+                        run_id=run_id,
+                        detail_urls=selected_detail_urls,
+                        detail_navigation_config=detail_navigation_config,
+                        start_page_index=detail_start_page_index,
+                    )
+
+                if detail_stop_rule == "duplicate_title":
+                    detail_pages = self._apply_duplicate_title_stop_rule(detail_pages)
+
+                for detail_page in detail_pages:
+                    if len(pages) >= max_pages:
+                        break
+                    detail_signature = (detail_page["final_url"], detail_page["content_hash"])
+                    if detail_signature in seen_snapshots:
+                        continue
+                    seen_snapshots.add(detail_signature)
+                    seen_urls.add(detail_page["final_url"])
+                    pages.append(detail_page)
 
             if not pages:
                 raise ScrapingError(
@@ -392,18 +430,37 @@ class ScraperAgent(BaseAgent):
         if container_selector and not runtime_config.get("wait_for_selector"):
             runtime_config["wait_for_selector"] = container_selector
 
-        page_type = str(strategy.get("page_type") or "").strip().lower()
-        if page_type == "detail":
-            runtime_config["max_pages"] = 1
-
         navigation_timeout_ms = self._normalize_navigation_timeout_ms(runtime_config.get("timeout_ms"))
         runtime_config["timeout_ms"] = navigation_timeout_ms
         runtime_config["wait_for_selector_timeout_ms"] = self._normalize_selector_timeout_ms(
             runtime_config.get("wait_for_selector_timeout_ms"),
             navigation_timeout_ms=navigation_timeout_ms,
         )
+        runtime_config["pagination_type"] = self._resolve_pagination_type(
+            runtime_config.get("pagination_type", strategy.get("pagination_type")),
+        )
+        runtime_config["page_expansion_mode"] = self._resolve_page_expansion_mode(
+            runtime_config.get("page_expansion_mode")
+        )
+        if runtime_config.get("linked_page_limit") is None:
+            runtime_config["linked_page_limit"] = runtime_config.get("detail_page_limit")
+        if runtime_config.get("linked_page_workers") is None:
+            runtime_config["linked_page_workers"] = strategy.get("linked_page_workers")
 
         return runtime_config
+
+    def _resolve_pagination_type(self, value: Any) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"load-more", "loadmore"}:
+            normalized = "load_more"
+        elif normalized in {"infinite", "infinite_scroll"}:
+            normalized = "scroll"
+
+        if normalized in ALLOWED_PAGINATION_TYPES:
+            return normalized
+        if normalized:
+            logger.warning("Ignoring unsupported pagination_type value.", pagination_type=normalized)
+        return "auto"
 
     def _is_stealth_mode_enabled(self, *, config: dict[str, Any], strategy: dict[str, Any]) -> bool:
         return bool(config.get("stealth_mode", strategy.get("stealth_mode", False)))
@@ -508,7 +565,19 @@ class ScraperAgent(BaseAgent):
             return explicit_mode
 
         page_type = str(strategy.get("page_type") or "").strip().lower()
+        follow_pagination_requested = bool(config.get("follow_pagination", config.get("follow_links", False)))
+        try:
+            requested_max_pages = int(config.get("max_pages", 1) or 1)
+        except (TypeError, ValueError):
+            requested_max_pages = 1
         if page_type == "detail":
+            if follow_pagination_requested and requested_max_pages > 1:
+                logger.info(
+                    "Detail classification overridden to list_harvest due explicit pagination request.",
+                    requested_max_pages=requested_max_pages,
+                    follow_pagination=follow_pagination_requested,
+                )
+                return "list_harvest"
             return "single_detail"
 
         prompt = str(config.get("prompt") or strategy.get("extraction_goal") or "").strip().lower()
@@ -546,11 +615,36 @@ class ScraperAgent(BaseAgent):
         max_pages: int,
     ) -> int:
         explicit_value = config.get("detail_page_limit", strategy.get("detail_page_limit"))
+        if explicit_value is None:
+            explicit_value = config.get("linked_page_limit")
         try:
             explicit_limit = int(explicit_value)
         except (TypeError, ValueError):
             explicit_limit = max(1, max_pages - 1)
         return max(1, min(explicit_limit, max(1, max_pages - 1)))
+
+    def _resolve_linked_page_worker_count(
+        self,
+        *,
+        config: dict[str, Any],
+        strategy: dict[str, Any],
+        detail_url_count: int,
+    ) -> int:
+        if detail_url_count <= 1:
+            return 1
+
+        explicit_value = config.get("linked_page_workers", strategy.get("linked_page_workers"))
+        try:
+            requested_workers = int(explicit_value)
+        except (TypeError, ValueError):
+            requested_workers = min(4, detail_url_count)
+
+        bounded_workers = max(1, min(requested_workers, MAX_LINKED_PAGE_WORKERS, detail_url_count))
+        return bounded_workers
+
+    def _resolve_page_expansion_mode(self, value: Any) -> str:
+        normalized = str(value or "").strip().lower()
+        return normalized if normalized in ALLOWED_PAGE_EXPANSION_MODES else "same_domain"
 
     def _resolve_detail_stop_rule(
         self,
@@ -596,8 +690,7 @@ class ScraperAgent(BaseAgent):
         if not requested:
             return False
 
-        page_type = str(strategy.get("page_type") or "").strip().lower()
-        if page_type == "detail" or traversal_mode in {"detail_drill", "single_detail"}:
+        if traversal_mode in {"detail_drill", "single_detail"}:
             return False
 
         prompt = str(config.get("prompt") or strategy.get("extraction_goal") or "").strip().lower()
@@ -622,17 +715,23 @@ class ScraperAgent(BaseAgent):
         config: dict[str, Any],
         strategy: dict[str, Any],
     ) -> bool:
-        traversal_mode = self._resolve_traversal_mode(config=config, strategy=strategy)
-        if traversal_mode == "detail_drill":
-            return str(strategy.get("page_type") or "").strip().lower() == "list"
-        if traversal_mode in {"list_harvest", "single_detail"}:
-            return False
-
+        page_type = str(strategy.get("page_type") or "").strip().lower()
         explicit = config.get("follow_detail_pages")
         if explicit is not None:
             return bool(explicit)
 
-        page_type = str(strategy.get("page_type") or "").strip().lower()
+        page_expansion_mode = self._resolve_page_expansion_mode(config.get("page_expansion_mode"))
+        if page_expansion_mode == "main_only":
+            return False
+        if page_expansion_mode in {"same_domain", "connected_external"} and page_type != "detail":
+            return True
+
+        traversal_mode = self._resolve_traversal_mode(config=config, strategy=strategy)
+        if traversal_mode == "detail_drill":
+            return page_type == "list"
+        if traversal_mode in {"list_harvest", "single_detail"}:
+            return False
+
         if page_type != "list":
             return False
 
@@ -701,6 +800,14 @@ class ScraperAgent(BaseAgent):
             or field_selectors.get("link")
             or "article a[href], li a[href], .item a[href], .product a[href]"
         ).strip()
+        expansion_mode = self._resolve_page_expansion_mode(config.get("page_expansion_mode"))
+        allow_external_domains = expansion_mode == "connected_external"
+        raw_keywords = config.get("linked_page_keywords")
+        linked_page_keywords = {
+            str(item).strip().lower()
+            for item in (raw_keywords if isinstance(raw_keywords, list) else [])
+            if str(item).strip()
+        }
 
         current_domain = urlparse(page.url).netloc.lower()
         candidates: list[str] = []
@@ -721,15 +828,112 @@ class ScraperAgent(BaseAgent):
             absolute_url = urljoin(page.url, href)
             if not absolute_url or absolute_url in seen_urls or absolute_url in candidates:
                 continue
+            link_text = str(node.get_text(" ", strip=True) or "").strip().lower()
+            if linked_page_keywords:
+                haystack = f"{absolute_url.lower()} {link_text}"
+                if not any(keyword in haystack for keyword in linked_page_keywords):
+                    continue
             if validate_scrape_url(absolute_url, field_name="detail_url"):
                 continue
-            if urlparse(absolute_url).netloc.lower() != current_domain:
+            if not allow_external_domains and urlparse(absolute_url).netloc.lower() != current_domain:
                 continue
             candidates.append(absolute_url)
             if len(candidates) >= limit:
                 break
 
         return candidates
+
+    async def _capture_detail_pages_sequential(
+        self,
+        *,
+        page: Page,
+        source_url: str,
+        run_id: str,
+        detail_urls: list[str],
+        detail_navigation_config: dict[str, Any],
+        start_page_index: int,
+    ) -> list[dict[str, Any]]:
+        captured: list[dict[str, Any]] = []
+        for offset, detail_url in enumerate(detail_urls):
+            try:
+                await self._navigate_to(page, detail_url, detail_navigation_config)
+                captured.append(
+                    await self._capture_page_snapshot(
+                        page=page,
+                        source_url=source_url,
+                        run_id=run_id,
+                        page_index=start_page_index + offset,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Linked page scrape failed; continuing.",
+                    detail_url=detail_url,
+                    error=str(exc),
+                )
+        return captured
+
+    async def _capture_detail_pages_parallel(
+        self,
+        *,
+        root_page: Page,
+        source_url: str,
+        run_id: str,
+        detail_urls: list[str],
+        detail_navigation_config: dict[str, Any],
+        start_page_index: int,
+        worker_count: int,
+        undetected_mode: bool,
+    ) -> list[dict[str, Any]]:
+        if not detail_urls:
+            return []
+
+        semaphore = asyncio.Semaphore(max(1, worker_count))
+        captured_payloads: list[dict[str, Any] | None] = [None] * len(detail_urls)
+        context = root_page.context
+
+        async def _worker(index: int, detail_url: str) -> None:
+            async with semaphore:
+                worker_page: Page | None = None
+                try:
+                    worker_page = await context.new_page()
+                    if undetected_mode:
+                        await self._apply_undetected_behavior(worker_page)
+                    await self._prepare_page(worker_page)
+                    await self._navigate_to(worker_page, detail_url, detail_navigation_config)
+                    captured_payloads[index] = await self._capture_page_snapshot(
+                        page=worker_page,
+                        source_url=source_url,
+                        run_id=run_id,
+                        page_index=start_page_index + index,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Parallel linked-page worker failed; continuing.",
+                        detail_url=detail_url,
+                        error=str(exc),
+                    )
+                finally:
+                    if worker_page is not None:
+                        try:
+                            await worker_page.close()
+                        except Exception:
+                            logger.warning("Failed to close parallel linked-page worker browser tab.", detail_url=detail_url)
+
+        await asyncio.gather(*(_worker(index, detail_url) for index, detail_url in enumerate(detail_urls)))
+        return [payload for payload in captured_payloads if payload is not None]
+
+    def _apply_duplicate_title_stop_rule(self, detail_pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        filtered: list[dict[str, Any]] = []
+        seen_titles: set[str] = set()
+        for detail_page in detail_pages:
+            title_signature = str(detail_page.get("title") or "").strip().lower()
+            if title_signature and title_signature in seen_titles:
+                continue
+            if title_signature:
+                seen_titles.add(title_signature)
+            filtered.append(detail_page)
+        return filtered
 
     async def _capture_page_snapshot(
         self,
@@ -815,6 +1019,244 @@ class ScraperAgent(BaseAgent):
             return
 
         await route.continue_()
+
+    def _is_remote_scrape_task(self, input_data: dict[str, Any]) -> bool:
+        task_type = str(input_data.get("task_type") or "").strip().lower()
+        return task_type == "scrape" and isinstance(input_data.get("input_payload"), dict)
+
+    def _resolve_remote_request_id(self, request: BrainItScrapeTaskRequest, input_data: dict[str, Any]) -> str:
+        explicit = str(request.input_payload.request_id or "").strip()
+        if explicit:
+            return explicit
+
+        for key in ("task_id", "run_id", "job_id"):
+            candidate = str(input_data.get(key) or "").strip()
+            if candidate:
+                return candidate
+        return str(uuid4())
+
+    def _normalize_remote_status(self, status: str, total: int, errors: list[str]) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized in {"completed", "partial", "failed"}:
+            if normalized == "completed" and errors:
+                return "partial"
+            if normalized == "partial" and total <= 0:
+                return "failed"
+            if normalized == "failed":
+                return "failed"
+            return normalized
+        if total <= 0:
+            return "failed"
+        return "partial" if errors else "completed"
+
+    def _build_insights(
+        self,
+        *,
+        total: int,
+        sources: list[ScraperSourceItem],
+        quality: ScraperQualityMetadata,
+        errors: list[str],
+        requested_limit: int,
+    ) -> ScraperAgentInsights:
+        source_count = len(sources)
+        coverage = float(quality.coverage)
+        confidence = float(quality.confidence)
+        missing_fields = dict(quality.missing_fields or {})
+        duplicates_removed = int(quality.duplicates_removed)
+        errors_count = len(errors)
+
+        coverage_label = "high" if coverage >= 0.8 else "moderate" if coverage >= 0.6 else "low"
+        confidence_label = "high" if confidence >= 0.8 else "moderate" if confidence >= 0.6 else "low"
+        top_missing_field = ""
+        top_missing_count = 0
+        if missing_fields:
+            top_missing_field, top_missing_count = sorted(
+                ((field, int(count)) for field, count in missing_fields.items()),
+                key=lambda item: (-item[1], item[0]),
+            )[0]
+
+        summary = (
+            f"Found {total} record(s) across {source_count} source(s). "
+            f"Coverage is {coverage_label} ({coverage:.2f}) and confidence is {confidence_label} ({confidence:.2f})."
+        )
+        if top_missing_count > 0:
+            summary += f" {top_missing_field} data is incomplete."
+
+        findings: list[str] = []
+        if sources:
+            top_source = sorted(sources, key=lambda item: (-int(item.count), item.name))[0]
+            findings.append(f"Most records came from {top_source.name} ({top_source.count}).")
+        else:
+            findings.append("No source distribution was reported.")
+
+        if top_missing_count > 0:
+            findings.append(f"{top_missing_field} is the most incomplete field ({top_missing_count} missing).")
+        else:
+            findings.append("Requested fields are complete in returned records.")
+
+        raw_total = total + max(0, duplicates_removed)
+        duplicate_impact = (duplicates_removed / raw_total) if raw_total > 0 else 0.0
+        findings.append(
+            f"Duplicate removal removed {duplicates_removed} record(s) ({duplicate_impact:.1%} impact)."
+        )
+
+        if errors_count > 0:
+            findings.append(f"The scraper reported {errors_count} error(s).")
+        else:
+            findings.append("No scraper errors were reported.")
+
+        findings.append(f"Coverage is {coverage:.2f} with confidence {confidence:.2f}.")
+        findings = findings[:5]
+        if len(findings) < 3:
+            findings.append(f"Returned {total} record(s) out of requested limit {requested_limit}.")
+        findings = findings[:5]
+
+        if total <= 0:
+            data_quality_note = "Result quality is low because no usable records were returned."
+        elif confidence >= 0.8 and coverage >= 0.8 and errors_count == 0 and top_missing_count == 0:
+            data_quality_note = "Result quality is high."
+        elif confidence >= 0.6 and coverage >= 0.6:
+            data_quality_note = "Result is usable but some requested fields are missing."
+        else:
+            data_quality_note = "Result quality is limited; review missing fields and reported errors."
+
+        if total <= 0:
+            recommended_next_step = "Refine the query or location and run again."
+        elif errors_count > 0:
+            recommended_next_step = "Retry the request to recover records from failed sources."
+        elif top_missing_field == "email" and top_missing_count > 0:
+            recommended_next_step = "Filter for records with email addresses."
+        elif total < requested_limit:
+            recommended_next_step = "Request more records to improve coverage."
+        else:
+            recommended_next_step = "Refine the search by city to improve precision."
+
+        return ScraperAgentInsights(
+            summary=summary,
+            key_findings=findings,
+            data_quality_note=data_quality_note,
+            recommended_next_step=recommended_next_step,
+        )
+
+    async def _execute_remote_scrape_task(self, input_data: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = BrainItScrapeTaskRequest.model_validate(input_data)
+        except PydanticValidationError as exc:
+            return self._build_failure(
+                "Invalid scrape task input payload.",
+                data={"validation_errors": exc.errors()},
+            )
+
+        request_payload = request.input_payload.model_copy(
+            update={"request_id": self._resolve_remote_request_id(request, input_data)}
+        )
+        try:
+            async with async_session_factory() as db:
+                effective_scraper_key = await get_effective_system_secret(db, "SCRAPER_API_KEY")
+                if str(effective_scraper_key or "").strip():
+                    self.scraper_client.api_key = str(effective_scraper_key).strip()
+        except Exception as exc:
+            logger.warning("Could not load system SCRAPER_API_KEY override.", error=str(exc))
+        input_summary = {
+            "query": request_payload.query,
+            "location": request_payload.location,
+            "limit": request_payload.limit,
+            "fields_count": len(request_payload.fields),
+        }
+        try:
+            scraper_response = await self.scraper_client.scrape(request_payload)
+        except ScraperClientError as exc:
+            failed_quality = ScraperQualityMetadata(
+                duplicates_removed=0,
+                coverage=0.0,
+                confidence=0.0,
+                missing_fields={},
+                normalized_fields=0,
+            )
+            failed_result = ScraperAgentNormalizedResult(
+                status="failed",
+                summary=ScraperAgentSummary(total=0, coverage=0.0, confidence=0.0),
+                output_payload=ScraperAgentOutputPayload(
+                    data=[],
+                    sources=[],
+                    quality=failed_quality,
+                    errors=[exc.message],
+                    request_id=request_payload.request_id or "",
+                    execution_time=0.0,
+                ),
+                insights=self._build_insights(
+                    total=0,
+                    sources=[],
+                    quality=failed_quality,
+                    errors=[exc.message],
+                    requested_limit=request_payload.limit,
+                ),
+                execution_steps=[
+                    ScraperExecutionStep(
+                        step=1,
+                        status="failed",
+                        input_summary=input_summary,
+                        output_summary={"error_code": exc.code, "http_status": exc.status_code},
+                    )
+                ],
+                metadata=ScraperAgentMetadata(),
+                scraper_confidence=0.0,
+            )
+            return self._build_failure(
+                exc.message,
+                data=failed_result.model_dump(),
+            )
+
+        response_data = list(scraper_response.data)
+        total_count = len(response_data)
+        normalized_status = self._normalize_remote_status(
+            scraper_response.status,
+            total_count,
+            scraper_response.errors,
+        )
+        normalized_result = ScraperAgentNormalizedResult(
+            status=normalized_status,  # type: ignore[arg-type]
+            summary=ScraperAgentSummary(
+                total=total_count,
+                coverage=scraper_response.quality.coverage,
+                confidence=scraper_response.quality.confidence,
+            ),
+            output_payload=ScraperAgentOutputPayload(
+                data=response_data,
+                sources=scraper_response.sources,
+                quality=scraper_response.quality,
+                errors=scraper_response.errors,
+                request_id=scraper_response.request_id,
+                execution_time=scraper_response.execution_time,
+            ),
+            insights=self._build_insights(
+                total=total_count,
+                sources=scraper_response.sources,
+                quality=scraper_response.quality,
+                errors=scraper_response.errors,
+                requested_limit=request_payload.limit,
+            ),
+            execution_steps=[
+                ScraperExecutionStep(
+                    step=1,
+                    status=normalized_status,
+                    input_summary=input_summary,
+                    output_summary={
+                        "total": total_count,
+                        "coverage": scraper_response.quality.coverage,
+                        "confidence": scraper_response.quality.confidence,
+                    },
+                )
+            ],
+            metadata=ScraperAgentMetadata(),
+            scraper_confidence=scraper_response.quality.confidence,
+        )
+        if normalized_status == "failed":
+            return self._build_failure(
+                "Smart Scraper returned failed status.",
+                data=normalized_result.model_dump(),
+            )
+        return self._build_success(normalized_result.model_dump())
 
     def _success_payload(self, data: dict[str, Any]) -> dict[str, Any]:
         return {

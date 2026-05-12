@@ -110,6 +110,26 @@ class JobConfigSchema(BaseModel):
         default=None,
         description="Whether to follow detail pages from listing pages",
     )
+    page_expansion_mode: Optional[Literal["main_only", "same_domain", "connected_external"]] = Field(
+        default=None,
+        description="How aggressively to expand from the main page into linked pages.",
+    )
+    linked_page_keywords: Optional[list[str]] = Field(
+        default=None,
+        description="Optional keywords used to prioritize/filter linked pages.",
+    )
+    linked_page_limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        description="Maximum linked pages to visit while expanding from the main page.",
+    )
+    linked_page_workers: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=16,
+        description="Concurrent workers used to scrape linked pages during orchestration.",
+    )
     detail_link_selector: Optional[str] = Field(
         default=None,
         max_length=500,
@@ -124,6 +144,12 @@ class JobConfigSchema(BaseModel):
         ge=1,
         le=1000,
         description="Maximum number of detail pages to visit",
+    )
+    max_records: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=5000,
+        description="Maximum number of structured records to return",
     )
     detail_stop_rule: Optional[Literal["budget_only", "duplicate_title"]] = Field(
         default=None,
@@ -165,7 +191,7 @@ class JobConfigSchema(BaseModel):
             return normalized or None
         return value
 
-    @field_validator("page_hints", mode="before")
+    @field_validator("page_hints", "linked_page_keywords", mode="before")
     @classmethod
     def normalize_page_hints(cls, value: object) -> object:
         if value is None:
@@ -357,3 +383,10 @@ class JobListResponse(BaseModel):
 
     jobs: list[JobResponse] = Field(..., description="List of jobs")
     total: int = Field(..., description="Total number of jobs")
+
+
+class JobDeleteResponse(BaseModel):
+    """Schema for permanent job deletion response."""
+
+    id: UUID = Field(..., description="Deleted job ID")
+    deleted: bool = Field(default=True, description="Whether the job was permanently deleted")

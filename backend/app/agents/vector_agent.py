@@ -1,9 +1,9 @@
-"""Vector Agent - FAISS embeddings and semantic search.
+"""Vector Agent - PGVector embeddings and semantic search.
 
 Single Responsibility: Generate embeddings and manage vector search.
 This agent is responsible for:
 - Generating text embeddings using GPT/Gemini
-- Storing embeddings in FAISS index
+- Storing embeddings in PGVector
 - Performing semantic search queries
 """
 from typing import Any, Dict, List, Optional
@@ -15,7 +15,7 @@ from app.vector.store import get_vector_store, vector_store_enabled
 
 
 class VectorAgent(BaseAgent):
-    """Handles FAISS embeddings and semantic search.
+    """Handles PGVector embeddings and semantic search.
     
     Single Responsibility: Vector embeddings and similarity search.
     
@@ -156,7 +156,7 @@ class VectorAgent(BaseAgent):
             return self.fail_response(error=f"Search failed: {str(e)}")
     
     async def _index_items(self, input_data: dict) -> dict:
-        """Add items to the FAISS index.
+        """Add items to the PGVector index.
         
         Args:
             input_data: Contains items with embeddings to index

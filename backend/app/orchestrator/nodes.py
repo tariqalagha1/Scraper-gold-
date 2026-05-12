@@ -425,6 +425,8 @@ async def processing_node(state: WorkflowState) -> WorkflowState:
                 "semantic_markdown": semantic_markdown_payload,
                 "url": final_url,
                 "context": str((state.config or {}).get("prompt") or ""),
+                "max_records": (state.config or {}).get("max_records"),
+                "record_fields": (state.strategy or {}).get("record_fields"),
                 "providers": (state.credentials or {}).get("providers", {}),
                 "pipeline_id": (state.config or {}).get("pipeline_id"),
             }

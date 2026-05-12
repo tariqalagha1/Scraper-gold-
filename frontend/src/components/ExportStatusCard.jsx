@@ -9,11 +9,21 @@ import ExportButton from './ExportButton';
 import { formatFileSize } from '../utils/helpers';
 
 const ExportStatusCard = ({ run, exportMessage, exportMeta = null, onExport }) => (
-  <Card sx={{ borderRadius: 4 }}>
+  <Card
+    sx={{
+      borderRadius: 4,
+      bgcolor: 'rgba(28, 31, 35, 0.84)',
+      border: '1px solid rgba(79, 69, 58, 0.5)',
+      color: '#E2E2E3',
+      boxShadow: 'none',
+      '& .MuiTypography-colorTextSecondary': { color: 'rgba(226, 226, 227, 0.72)' },
+      '& .MuiChip-root': { color: '#E2E2E3', borderColor: 'rgba(79, 69, 58, 0.5)' },
+    }}
+  >
     <CardContent>
       <Stack spacing={2}>
         <Typography variant="h6">Export</Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="text.secondary" sx={{ color: 'rgba(226, 226, 227, 0.72)' }}>
           When your run is complete, you can export the results in the format that works best for you.
         </Typography>
 

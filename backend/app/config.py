@@ -1,11 +1,13 @@
 from functools import lru_cache
 import base64
 import hashlib
+import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import dotenv_values
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,14 +83,16 @@ class Settings(BaseSettings):
     ALLOW_LOOPBACK_TARGETS_IN_NON_PRODUCTION: bool = True
     RATE_LIMIT_REQUESTS: int = 10
     RATE_LIMIT_WINDOW_SECONDS: int = 60
+    AUTH_LOGIN_RATE_LIMIT: int = 10
+    AUTH_LOGIN_RATE_WINDOW_SECONDS: int = 300
+    AUTH_REGISTER_RATE_LIMIT: int = 5
+    AUTH_REGISTER_RATE_WINDOW_SECONDS: int = 3600
     JOB_CREATE_RATE_LIMIT: int = 10
     JOB_CREATE_RATE_WINDOW_SECONDS: int = 3600
     RUN_CREATE_RATE_LIMIT: int = 10
     RUN_CREATE_RATE_WINDOW_SECONDS: int = 60
     ENABLE_VECTOR: bool = False
     ANALYSIS_MODE: Literal["basic", "ai"] = "basic"
-    CELERY_TASK_TIME_LIMIT: int = 300
-    CELERY_TASK_SOFT_TIME_LIMIT: int = 270
     ORCHESTRATION_NODE_TIMEOUT_SECONDS: int = 90
     ORCHESTRATION_INTAKE_TIMEOUT_SECONDS: int = 30
     ORCHESTRATION_SCRAPER_TIMEOUT_SECONDS: int = 180
@@ -101,6 +105,10 @@ class Settings(BaseSettings):
     OPENAI_ORCHESTRATION_MODEL: str = "gpt-4o-mini"
     OPENAI_ANALYSIS_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    SCRAPER_BASE_URL: str = "http://127.0.0.1:8003"
+    SCRAPER_API_KEY: str = ""
+    SCRAPER_TIMEOUT_SECONDS: float = 30.0
+    SYSTEM_KEYS_ADMIN_EMAILS: list[str] = Field(default_factory=list)
     GEMINI_API_KEY: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
@@ -112,6 +120,56 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("SYSTEM_KEYS_ADMIN_EMAILS", mode="before")
+    @classmethod
+    def parse_system_keys_admin_emails(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [email.strip().lower() for email in value.split(",") if email.strip()]
+        if isinstance(value, list):
+            return [str(email).strip().lower() for email in value if str(email).strip()]
+        return value
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_sqlite_database_url(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+
+        normalized = value.strip()
+        sqlite_prefix = "sqlite+aiosqlite:///"
+        if not normalized.startswith(sqlite_prefix):
+            return normalized
+
+        sqlite_path = normalized[len(sqlite_prefix):]
+        if sqlite_path.startswith("./"):
+            resolved = (BASE_DIR / sqlite_path[2:]).resolve()
+            return f"{sqlite_prefix}{resolved}"
+        if sqlite_path and not sqlite_path.startswith("/"):
+            resolved = (BASE_DIR / sqlite_path).resolve()
+            return f"{sqlite_prefix}{resolved}"
+
+        return normalized
+
+    @field_validator("SCRAPER_BASE_URL", mode="before")
+    @classmethod
+    def resolve_scraper_base_url(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        root_value = _root_env_value("SCRAPER_BASE_URL")
+        if root_value:
+            return root_value
+        return value
+
+    @field_validator("SCRAPER_API_KEY", mode="before")
+    @classmethod
+    def resolve_scraper_api_key(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        root_value = _root_env_value("SCRAPER_API_KEY")
+        if root_value:
+            return root_value
         return value
 
     @field_validator("SECRET_KEY")
@@ -143,6 +201,11 @@ class Settings(BaseSettings):
             "REDIS_URL": self.REDIS_URL,
             "SECRET_KEY": self.SECRET_KEY,
         }
+        scraper_base_url = str(self.SCRAPER_BASE_URL).strip()
+        scraper_api_key = str(self.SCRAPER_API_KEY).strip()
+        if scraper_base_url and not scraper_api_key:
+            critical_values["SCRAPER_API_KEY"] = self.SCRAPER_API_KEY
+
         missing = [name for name, value in critical_values.items() if not str(value).strip()]
         if missing:
             raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
@@ -180,6 +243,27 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def _root_env_values() -> dict[str, str]:
+    root_env_path = BASE_DIR.parent / ".env"
+    if not root_env_path.exists():
+        return {}
+    parsed = dotenv_values(root_env_path)
+    normalized: dict[str, str] = {}
+    for key, raw in parsed.items():
+        if key is None or raw is None:
+            continue
+        normalized[str(key)] = str(raw)
+    return normalized
+
+
+def _root_env_value(name: str) -> str:
+    env_value = str(os.getenv(name) or "").strip()
+    if env_value:
+        return env_value
+    return str(_root_env_values().get(name, "")).strip()
 
 
 settings = get_settings()

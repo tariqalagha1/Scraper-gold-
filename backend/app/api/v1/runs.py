@@ -3,18 +3,23 @@
 Handles viewing run status and history for scraping jobs.
 """
 import asyncio
-from uuid import UUID
+import logging
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db, get_storage
+from app.api.deps import get_current_user, get_db, get_storage, verify_api_key
 from app.config import settings
+from app.control.control_service import set_control
+from app.execution.brainit_execution_service import execute_scraping_run
+from app.execution.task_registry import cancel_task, get_trace_id, register_task, set_task_handle
 from app.models.job import Job
 from app.models.result import Result
 from app.models.run import Run
 from app.models.user import User
+from app.schemas.execution_contract import build_execution_contract_from_job_config
 from app.schemas.result import ResultListResponse, ResultResponse
 from app.schemas.run import RunListResponse, RunResponse
 from app.services.run_logs import append_run_log, read_run_logs
@@ -23,37 +28,35 @@ from app.storage.manager import StorageManager
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-def _get_run_scraping_job():
-    try:
-        from app.queue.tasks import run_scraping_job
-    except ModuleNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Background worker dependencies are missing. Install backend requirements and restart the API.",
-        ) from exc
-
-    return run_scraping_job
+def _serialize_run(run: Run) -> RunResponse:
+    data = RunResponse.model_validate(run)
+    trace_id = get_trace_id(str(run.id))
+    if trace_id:
+        return data.model_copy(update={"trace_id": trace_id})
+    return data
 
 
-async def _enqueue_retry_or_fail(
-    db: AsyncSession,
-    *,
-    run: Run,
-    current_user: User,
-) -> None:
-    try:
-        _get_run_scraping_job().delay(str(run.job_id), str(current_user.id), str(run.id))
-    except Exception as exc:
-        run.status = "failed"
-        run.error_message = "Execution queue is unavailable. Start the worker and try again."
-        await db.commit()
-        await db.refresh(run)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=run.error_message,
-        ) from exc
+async def _schedule_brainit_retry(*, run: Run, current_user: User) -> str:
+    trace_id = str(uuid4())
+    run_id = str(run.id)
+    register_task(run_id=run_id, job_id=str(run.job_id), trace_id=trace_id)
+    task = asyncio.create_task(
+        execute_scraping_run(
+            str(run.job_id),
+            user_id=str(current_user.id),
+            payload={
+                "run_id": run_id,
+                "execution_contract": dict(run.execution_contract or {}),
+            },
+            trace_id=trace_id,
+        ),
+        name=f"brainit-run-{run_id}",
+    )
+    set_task_handle(run_id, task)
+    return trace_id
 
 
 @router.get(
@@ -87,7 +90,7 @@ async def list_runs(
     result = await db.execute(stmt)
     runs = result.scalars().all()
 
-    return RunListResponse(runs=[RunResponse.model_validate(run) for run in runs], total=total)
+    return RunListResponse(runs=[_serialize_run(run) for run in runs], total=total)
 
 
 @router.get(
@@ -123,6 +126,7 @@ async def get_run_logs(
     response_model=RunResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Retry a failed run",
+    dependencies=[Depends(verify_api_key)],
 )
 async def retry_run(
     run_id: UUID,
@@ -162,6 +166,13 @@ async def retry_run(
             detail="A run is already pending or running for this job",
         )
 
+    retry_contract = dict(run.execution_contract or {})
+    if not retry_contract:
+        retry_contract = build_execution_contract_from_job_config(
+            (run.job.config if run.job else {}),
+            job_url=(run.job.url if run.job else None),
+        ).model_dump()
+
     retry = Run(
         job_id=run.job_id,
         status="pending",
@@ -169,6 +180,7 @@ async def retry_run(
         started_at=None,
         finished_at=None,
         error_message=None,
+        execution_contract=retry_contract,
     )
     db.add(retry)
     await db.commit()
@@ -180,9 +192,9 @@ async def retry_run(
         message="Run retry requested.",
         details={"retry_of": str(run.id)},
     )
-    await _enqueue_retry_or_fail(db, run=retry, current_user=current_user)
+    await _schedule_brainit_retry(run=retry, current_user=current_user)
 
-    return RunResponse.model_validate(retry)
+    return _serialize_run(retry)
 
 
 @router.post(
@@ -190,6 +202,7 @@ async def retry_run(
     response_model=RunResponse,
     status_code=status.HTTP_200_OK,
     summary="Cancel a queued, pending, or running run",
+    dependencies=[Depends(verify_api_key)],
 )
 async def cancel_run(
     run_id: UUID,
@@ -218,6 +231,11 @@ async def cancel_run(
             detail=f"Cannot cancel a {run.status} run. Only queued, pending, or running runs can be cancelled.",
         )
     
+    trace_id = get_trace_id(str(run.id))
+    if trace_id:
+        set_control(trace_id, "cancel", True)
+    cancel_task(str(run.id))
+
     run.status = "cancelled"
     run.finished_at = func.now()
     run.error_message = "Run was cancelled by user"
@@ -227,7 +245,7 @@ async def cancel_run(
     
     append_run_log(str(run.id), event="run_cancelled", message="Run was cancelled by user.")
     
-    return RunResponse.model_validate(run)
+    return _serialize_run(run)
 
 
 @router.get(
@@ -270,7 +288,7 @@ async def get_run(
             detail="Run not found",
         )
     
-    return RunResponse.model_validate(run)
+    return _serialize_run(run)
 
 
 @router.get(

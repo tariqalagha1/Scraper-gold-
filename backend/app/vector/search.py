@@ -1,31 +1,28 @@
-"""Semantic search queries using FAISS."""
-from typing import Any, Dict, List, Optional
+"""Semantic search queries using PGVector."""
+from typing import Any
 import logging
 
 from app.vector.embeddings import EmbeddingGenerator
-from app.vector.index import FAISSIndexManager
+from app.vector.index import PGVectorIndexManager
 
 
 logger = logging.getLogger(__name__)
 
 
 class SemanticSearch:
-    """Performs semantic search using FAISS.
-    
-    Combines embedding generation with FAISS search.
-    """
+    """Performs semantic search using PGVector."""
     
     def __init__(self):
         """Initialize the semantic search."""
         self.embedding_generator = EmbeddingGenerator()
-        self.index_manager = FAISSIndexManager()
+        self.index_manager = PGVectorIndexManager()
     
     async def search(
         self,
-        query_embedding: List[float],
-        user_id: int,
+        query_embedding: list[float],
+        user_id: Any,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for similar items using embedding.
         
         Args:
@@ -47,7 +44,7 @@ class SemanticSearch:
         query: str,
         user_id: int,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for similar items using text query.
         
         Args:
@@ -74,7 +71,7 @@ async def semantic_search(
     query: str,
     user_id: int,
     limit: int = 10,
-) -> List[int]:
+) -> list[int]:
     """Perform semantic search and return result IDs.
     
     Args:

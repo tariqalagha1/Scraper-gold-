@@ -200,7 +200,7 @@ const NewJobPage = () => {
         max_pages: effectiveMaxPages,
         follow_pagination: followPagination,
       });
-      await api.startJobRun(createdJob.id);
+      await api.startJobRun(createdJob.id, { job: createdJob });
 
       if (trimmedUrl) {
         saveRecentRequest({

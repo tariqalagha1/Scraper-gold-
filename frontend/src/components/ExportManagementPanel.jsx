@@ -1,105 +1,118 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import api from '../services/api';
+import { EmptyState, PageHeader, PrimaryButton, Section } from './ui';
+
+const focusClass = 'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-slate-950';
 
 const ExportManagementPanel = () => {
   const [exports, setExports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [selectedExports, setSelectedExports] = useState([]);
   const [deletingIds, setDeletingIds] = useState(new Set());
   const pollingIntervals = useRef({});
 
-  useEffect(() => {
-    loadExports();
-    return () => {
-      // Cleanup all polling intervals on unmount
-      Object.values(pollingIntervals.current).forEach(interval => clearInterval(interval));
-    };
+  const stopStatusPolling = useCallback((exportId) => {
+    const interval = pollingIntervals.current[exportId];
+    if (interval) {
+      clearInterval(interval);
+      delete pollingIntervals.current[exportId];
+    }
   }, []);
 
-  // Poll for status changes on generating/pending exports
-  const startStatusPolling = (exportId) => {
+  const startStatusPolling = useCallback((exportId) => {
     if (pollingIntervals.current[exportId]) return;
 
     const interval = setInterval(async () => {
       try {
         const updatedExport = await api.getExportStatus(exportId);
-        setExports(prev =>
-          prev.map(exp => (exp.id === exportId ? updatedExport : exp))
-        );
+        setExports((previous) => previous.map((item) => (item.id === exportId ? updatedExport : item)));
 
-        // Stop polling if export is completed or failed
         if (updatedExport.status === 'completed' || updatedExport.status === 'failed') {
-          clearInterval(interval);
-          delete pollingIntervals.current[exportId];
+          stopStatusPolling(exportId);
         }
-      } catch (err) {
-        console.error(`Error polling status for export ${exportId}:`, err);
+      } catch {
+        stopStatusPolling(exportId);
       }
-    }, 3000); // Poll every 3 seconds
+    }, 3000);
 
     pollingIntervals.current[exportId] = interval;
-  };
+  }, [stopStatusPolling]);
 
-  const loadExports = async () => {
+  const loadExports = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getExports({ limit: 50 });
-      setExports(data || []);
+      const items = data || [];
+      setExports(items);
+      setError('');
 
-      // Start polling for any generating/pending exports
-      (data || []).forEach(exp => {
-        if (exp.status === 'generating' || exp.status === 'pending') {
-          startStatusPolling(exp.id);
+      items.forEach((item) => {
+        if (item.status === 'generating' || item.status === 'pending') {
+          startStatusPolling(item.id);
+        } else {
+          stopStatusPolling(item.id);
         }
       });
-    } catch (err) {
-      setError('Failed to load exports');
-      console.error('Error loading exports:', err);
+    } catch {
+      setError('Failed to load exports.');
     } finally {
       setLoading(false);
     }
+  }, [startStatusPolling, stopStatusPolling]);
+
+  useEffect(() => {
+    loadExports();
+    const intervalRegistry = pollingIntervals.current;
+
+    return () => {
+      Object.values(intervalRegistry).forEach((interval) => clearInterval(interval));
+    };
+  }, [loadExports]);
+
+  const triggerDownload = (download, fallbackFilename) => {
+    const blob = download?.blob instanceof Blob ? download.blob : new Blob([download?.blob ?? '']);
+    const filename = String(download?.filename || fallbackFilename || 'download').trim() || 'download';
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(anchor);
   };
 
   const handleDownload = async (exportId) => {
     try {
-      const blob = await api.downloadExport(exportId);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `export_${exportId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Error downloading export:', err);
-      alert('Failed to download export');
+      const download = await api.downloadExport(exportId);
+      triggerDownload(download, `export_${exportId}`);
+      setNotice(`Export ${exportId} downloaded.`);
+    } catch {
+      setError('Failed to download export.');
     }
   };
 
   const handleDelete = async (exportId) => {
-    if (!window.confirm('Are you sure you want to delete this export?')) return;
+    const confirmed = typeof window === 'undefined' || window.confirm('Delete this export?');
+    if (!confirmed) return;
 
     try {
-      setDeletingIds(prev => new Set([...prev, exportId]));
+      setDeletingIds((previous) => new Set([...previous, exportId]));
       await api.deleteExport(exportId);
-      setExports(prev => prev.filter(exp => exp.id !== exportId));
-
-      // Clear polling interval if exists
-      if (pollingIntervals.current[exportId]) {
-        clearInterval(pollingIntervals.current[exportId]);
-        delete pollingIntervals.current[exportId];
-      }
-    } catch (err) {
-      console.error('Error deleting export:', err);
-      alert('Failed to delete export');
+      setExports((previous) => previous.filter((item) => item.id !== exportId));
+      setSelectedExports((previous) => previous.filter((itemId) => itemId !== exportId));
+      stopStatusPolling(exportId);
+      setNotice('Export deleted.');
+    } catch {
+      setError('Failed to delete export.');
     } finally {
-      setDeletingIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(exportId);
-        return newSet;
+      setDeletingIds((previous) => {
+        const next = new Set(previous);
+        next.delete(exportId);
+        return next;
       });
     }
   };
@@ -108,155 +121,140 @@ const ExportManagementPanel = () => {
     if (selectedExports.length === 0) return;
 
     try {
-      const blob = await api.downloadMultipleExports(selectedExports);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bulk_export_${selectedExports.length}_files.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Error downloading exports:', err);
-      alert('Failed to download exports');
+      const download = await api.downloadMultipleExports(selectedExports);
+      const fallback = selectedExports.length === 1
+        ? `export_${selectedExports[0]}`
+        : `bulk_export_${selectedExports.length}_files.zip`;
+      triggerDownload(download, fallback);
+      setNotice(`${selectedExports.length} exports downloaded.`);
+    } catch {
+      setError('Failed to download selected exports.');
     }
   };
 
   const toggleExportSelection = (exportId) => {
-    setSelectedExports(prev =>
-      prev.includes(exportId)
-        ? prev.filter(id => id !== exportId)
-        : [...prev, exportId]
+    setSelectedExports((previous) =>
+      previous.includes(exportId)
+        ? previous.filter((id) => id !== exportId)
+        : [...previous, exportId]
     );
   };
 
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed':
-        return 'text-green-600 bg-green-100';
+        return 'text-emerald-200 bg-emerald-500/10 border-emerald-500/20';
       case 'generating':
       case 'pending':
-        return 'text-yellow-600 bg-yellow-100';
+        return 'text-amber-200 bg-amber-500/10 border-amber-500/20';
       case 'failed':
-        return 'text-red-600 bg-red-100';
+        return 'text-red-200 bg-red-500/10 border-red-500/20';
       default:
-        return 'text-gray-600 bg-gray-100';
+        return 'text-slate-300 bg-slate-800 border-white/10';
     }
   };
 
   const formatFileSize = (bytes) => {
     if (!bytes) return 'Unknown';
     const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+    const index = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${Math.round((bytes / (1024 ** index)) * 100) / 100} ${sizes[index]}`;
   };
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold mb-4">Export Management</h3>
-        <div className="animate-pulse space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="border rounded-lg p-4">
-              <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold mb-4">Export Management</h3>
-        <div className="text-red-600 text-center py-4">{error}</div>
-        <button
-          onClick={loadExports}
-          className="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">Export Management</h3>
-        {selectedExports.length > 0 && (
-          <button
-            onClick={handleBulkDownload}
-            className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
-          >
+    <section className="space-y-4">
+      <PageHeader
+        title="Exports"
+        description="Download, monitor, and clean up generated export files."
+        actions={selectedExports.length > 0 ? (
+          <PrimaryButton type="button" onClick={handleBulkDownload}>
             Download Selected ({selectedExports.length})
-          </button>
-        )}
-      </div>
+          </PrimaryButton>
+        ) : null}
+      />
 
-      <div className="space-y-4">
-        {exports.length === 0 ? (
-          <div className="text-gray-500 text-center py-8">
-            No exports found
+      {(error || notice) && (
+        <div
+          className={`rounded-xl border px-3 py-2 text-sm ${
+            error ? 'border-red-400/30 bg-red-400/10 text-red-200' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
+          }`}
+          role={error ? 'alert' : 'status'}
+        >
+          {error || notice}
+        </div>
+      )}
+
+      <Section title="Export management" description="Track status, download complete files, and remove old exports.">
+        {loading ? (
+          <div className="animate-pulse space-y-3">
+            {[...Array(3)].map((_, index) => (
+              <div key={index} className="rounded-2xl border border-white/10 bg-slate-900 p-4">
+                <div className="mb-2 h-4 w-1/3 rounded bg-white/10" />
+                <div className="h-3 w-1/2 rounded bg-white/10" />
+              </div>
+            ))}
           </div>
+        ) : exports.length === 0 ? (
+          <EmptyState
+            title="No exports found."
+            description="Create an export from a run result and it will appear here."
+          />
         ) : (
-          exports.map((exportItem) => (
-            <div key={exportItem.id} className="border rounded-lg p-4 hover:bg-gray-50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3 flex-1">
-                  <input
-                    type="checkbox"
-                    checked={selectedExports.includes(exportItem.id)}
-                    onChange={() => toggleExportSelection(exportItem.id)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium">{exportItem.job_name || 'Unknown Job'}</span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(exportItem.status)}`}>
-                        {exportItem.status === 'generating' ? 'GENERATING' : exportItem.format.toUpperCase()}
-                      </span>
-                      {exportItem.status === 'generating' && (
-                        <div className="flex items-center space-x-1">
-                          <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
-                          <span className="text-xs text-yellow-600">Generating...</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600 mt-1">
-                      Created {formatDistanceToNow(new Date(exportItem.created_at), { addSuffix: true })}
-                      {exportItem.file_size && exportItem.status === 'completed' && (
-                        <span className="ml-2">• {formatFileSize(exportItem.file_size)}</span>
-                      )}
+          <div className="space-y-3">
+            {exports.map((exportItem) => (
+              <div key={exportItem.id} className="rounded-2xl border border-white/10 bg-slate-900 p-4 transition hover:border-accent/30">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-[240px] flex-1 items-start gap-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select export ${exportItem.id}`}
+                      checked={selectedExports.includes(exportItem.id)}
+                      onChange={() => toggleExportSelection(exportItem.id)}
+                      className={`mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 ${focusClass}`}
+                    />
+
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-100">{exportItem.job_name || 'Unknown job'}</span>
+                        <span className={`rounded-full border px-2 py-1 text-xs font-medium ${getStatusColor(exportItem.status)}`}>
+                          {String(exportItem.status || exportItem.format || '').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        Created {formatDistanceToNow(new Date(exportItem.created_at), { addSuffix: true })}
+                        {exportItem.file_size && exportItem.status === 'completed' ? (
+                          <span className="ml-2">• {formatFileSize(exportItem.file_size)}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  {exportItem.status === 'completed' && (
+
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                    {exportItem.status === 'completed' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(exportItem.id)}
+                        className={`w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-200 transition hover:border-emerald-400 sm:w-auto ${focusClass}`}
+                      >
+                        Download
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleDownload(exportItem.id)}
-                      className="bg-green-500 text-white py-1 px-3 rounded text-sm hover:bg-green-600"
+                      type="button"
+                      onClick={() => handleDelete(exportItem.id)}
+                      disabled={deletingIds.has(exportItem.id)}
+                      className={`w-full rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-1 text-sm text-red-200 transition hover:border-red-300 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${focusClass}`}
                     >
-                      Download
+                      {deletingIds.has(exportItem.id) ? 'Deleting...' : 'Delete'}
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleDelete(exportItem.id)}
-                    disabled={deletingIds.has(exportItem.id)}
-                    className="bg-red-500 text-white py-1 px-3 rounded text-sm hover:bg-red-600 disabled:bg-red-300 disabled:cursor-not-allowed"
-                  >
-                    {deletingIds.has(exportItem.id) ? 'Deleting...' : 'Delete'}
-                  </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
-      </div>
-    </div>
+      </Section>
+    </section>
   );
 };
 

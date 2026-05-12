@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -98,6 +98,14 @@ class Run(Base):
     )
     markdown_snapshot_path: Mapped[Optional[str]] = mapped_column(
         String(500),
+        nullable=True,
+    )
+    execution_contract: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    execution_result: Mapped[Optional[dict]] = mapped_column(
+        JSON,
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

@@ -71,11 +71,10 @@ class PDFExporter(BaseExporter):
         story.append(Paragraph(execution["Decision Reason"] or "No decision reason available.", styles["BodyText"]))
         story.append(Spacer(1, 0.18 * inch))
 
-        story.append(Paragraph("<b>Data Preview</b>", styles["Heading2"]))
-        preview_rows = records[:10]
-        if preview_rows:
-            headers = sorted({key for row in preview_rows for key in row.keys()})[:5]
-            table_rows = [headers] + [[str(row.get(header, "")) for header in headers] for row in preview_rows]
+        story.append(Paragraph("<b>Data Records</b>", styles["Heading2"]))
+        if records:
+            headers = sorted({key for row in records for key in row.keys()})
+            table_rows = [headers] + [[str(row.get(header, "")) for header in headers] for row in records]
             pdf_table = Table(table_rows, repeatRows=1)
             pdf_table.setStyle(
                 TableStyle(
@@ -94,8 +93,11 @@ class PDFExporter(BaseExporter):
         story.append(Spacer(1, 0.18 * inch))
 
         story.append(Paragraph("<b>Errors</b>", styles["Heading2"]))
-        for error in errors:
-            story.append(Paragraph(f"- {error}", styles["BodyText"]))
+        if errors:
+            for error in errors:
+                story.append(Paragraph(f"- {error}", styles["BodyText"]))
+        else:
+            story.append(Paragraph("No errors reported.", styles["BodyText"]))
 
         document.build(story)
         return self.write_export_file("pdf", buffer.getvalue(), export_id=resolved_export_id)

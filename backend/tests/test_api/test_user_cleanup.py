@@ -16,6 +16,7 @@ from app.services import user_cleanup as user_cleanup_service
 from app.storage.manager import StorageManager
 
 pytestmark = pytest.mark.asyncio
+TEST_API_KEY = "test-global-api-key"
 
 
 def _override_db(session_factory):
@@ -27,7 +28,7 @@ def _override_db(session_factory):
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> str:
-    password = "super-secret-123"
+    password = "Super-secret-123"
     register_response = await client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": password},
@@ -41,6 +42,13 @@ async def _register_and_login(client: AsyncClient, email: str) -> str:
     )
     assert login_response.status_code == 200
     return login_response.json()["access_token"]
+
+
+def _auth_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-API-Key": TEST_API_KEY,
+    }
 
 
 async def _build_user_history(session_factory, email: str, storage_root: Path) -> dict[str, object]:
@@ -121,7 +129,7 @@ async def test_clear_temp_files_only_removes_owned_artifacts(test_engine, isolat
 
         response = await client.delete(
             "/api/v1/user/temp-files",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
         )
 
     assert response.status_code == 200
@@ -169,7 +177,7 @@ async def test_clear_history_only_removes_current_user_records(test_engine, isol
 
         response = await client.delete(
             "/api/v1/user/history",
-            headers={"Authorization": f"Bearer {token_a}"},
+            headers=_auth_headers(token_a),
         )
 
     assert response.status_code == 200
@@ -209,7 +217,7 @@ async def test_clear_all_requires_auth_and_missing_files_do_not_break_cleanup(te
 
         response = await client.delete(
             "/api/v1/user/clear-all",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
         )
 
     assert response.status_code == 200
@@ -261,7 +269,7 @@ async def test_clear_all_returns_partial_success_and_rolls_back_db_on_file_clean
 
         response = await client.delete(
             "/api/v1/user/clear-all",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
         )
 
     assert response.status_code == 200

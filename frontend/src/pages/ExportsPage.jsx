@@ -56,12 +56,12 @@ const ExportsPage = () => {
 
   const handleDownload = async (exportId, filename) => {
     try {
-      const blobData = await api.downloadExport(exportId);
-      const blob = new Blob([blobData]);
+      const download = await api.downloadExport(exportId);
+      const blob = download?.blob instanceof Blob ? download.blob : new Blob([download?.blob ?? '']);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = filename || `export-${exportId}`;
+      link.download = (download?.filename || filename || `export-${exportId}`).trim();
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

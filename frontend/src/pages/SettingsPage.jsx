@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import SectionHeader from '../components/SectionHeader';
+import { PageHeader } from '../components/ui';
 import api from '../services/api';
 import {
   bytesToMegabytes,
@@ -47,6 +47,7 @@ const ACTIONS = {
 
 const formatMb = (value) => `${Number(value || 0).toFixed(2)} MB`;
 const CLEAR_ALL_REDIRECT_DELAY_MS = 300;
+const focusClass = 'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-slate-900';
 
 const SettingsPage = () => {
   const [summary, setSummary] = useState(null);
@@ -73,6 +74,19 @@ const SettingsPage = () => {
   useEffect(() => {
     loadSummary();
   }, []);
+
+  useEffect(() => {
+    if (!modalScope) return undefined;
+
+    const handleEsc = (event) => {
+      if (event.key === 'Escape' && !busyScope) {
+        setModalScope('');
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [modalScope, busyScope]);
 
   const metricsByScope = useMemo(() => {
     const historyRecords = Number(summary?.history?.total_records || 0);
@@ -133,8 +147,7 @@ const SettingsPage = () => {
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
-      <SectionHeader
-        eyebrow="Settings"
+      <PageHeader
         title="Storage & Privacy"
         description="Review what can be safely removed from your account history and temporary storage, then clear it with an explicit confirmation step."
       />
@@ -151,10 +164,10 @@ const SettingsPage = () => {
         </div>
       )}
 
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
+      <div className="mt-8 grid gap-4 md:grid-cols-3">
         <Link
           to="/ai-integrations"
-          className="rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40"
+          className={`rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40 ${focusClass}`}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Integrations</p>
           <h3 className="mt-3 text-2xl font-semibold text-textMain">AI Integrations</h3>
@@ -165,12 +178,23 @@ const SettingsPage = () => {
 
         <Link
           to="/api-keys"
-          className="rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40"
+          className={`rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40 ${focusClass}`}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Features</p>
           <h3 className="mt-3 text-2xl font-semibold text-textMain">API Keys</h3>
           <p className="mt-3 text-sm leading-6 text-textMuted">
             Create and rotate Smart Scraper API keys used by your own scripts and external integrations.
+          </p>
+        </Link>
+
+        <Link
+          to="/system-keys"
+          className={`rounded-[24px] border border-white/10 bg-surface p-6 transition hover:border-accent/40 ${focusClass}`}
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Operations</p>
+          <h3 className="mt-3 text-2xl font-semibold text-textMain">System Keys</h3>
+          <p className="mt-3 text-sm leading-6 text-textMuted">
+            Manage global encrypted keys like JWT secret, global API key, scraper key, and OpenAI fallback key.
           </p>
         </Link>
       </div>
@@ -220,7 +244,7 @@ const SettingsPage = () => {
                   type="button"
                   onClick={() => setModalScope(key)}
                   disabled={loading || busyScope === action.scope}
-                  className={`${action.buttonClass} disabled:cursor-not-allowed disabled:opacity-60`}
+                  className={`${action.buttonClass} ${focusClass} disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   {busyScope === action.scope ? 'Working...' : action.title}
                 </button>
@@ -280,7 +304,7 @@ const SettingsPage = () => {
               <button
                 type="button"
                 onClick={() => setModalScope('')}
-                className="rounded-2xl border border-white/10 px-5 py-3 text-sm text-textMuted transition hover:border-white/20 hover:text-textMain"
+                className={`rounded-2xl border border-white/10 px-5 py-3 text-sm text-textMuted transition hover:border-white/20 hover:text-textMain ${focusClass}`}
               >
                 Cancel
               </button>
@@ -288,7 +312,7 @@ const SettingsPage = () => {
                 type="button"
                 onClick={handleConfirmAction}
                 disabled={busyScope === activeAction.scope}
-                className="rounded-2xl bg-danger px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                className={`rounded-2xl bg-danger px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 ${focusClass}`}
               >
                 {busyScope === activeAction.scope ? 'Deleting...' : activeAction.title}
               </button>

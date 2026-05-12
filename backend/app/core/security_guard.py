@@ -40,7 +40,7 @@ _PROMPT_RISK_PATTERNS: tuple[tuple[str, Pattern[str], int], ...] = (
     (
         "secret_exfiltration",
         re.compile(
-            r"\b(api[_ -]?key|token|secret|password|credential|environment variable|\.env)\b",
+            r"\b(api[_ -]?keys?|tokens?|secrets?|passwords?|credentials?|environment variables?|\.env)\b",
             re.IGNORECASE,
         ),
         2,

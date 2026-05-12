@@ -1,122 +1,122 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
+import api from '../services/api';
+import { EmptyState, PageHeader, Section } from './ui';
+
+const focusClass = 'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-slate-950';
 
 const ExportStatusView = () => {
   const [exports, setExports] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchExports();
-    fetchStats();
+    const fetchExportData = async () => {
+      try {
+        setLoading(true);
+        const [exportItems, exportStats] = await Promise.all([api.getExports(), api.getExportStats()]);
+        setExports(exportItems || []);
+        setStats(exportStats || {});
+        setError('');
+      } catch (fetchError) {
+        setError(fetchError?.response?.data?.detail || 'Could not load export status.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchExportData();
   }, []);
 
-  const fetchExports = async () => {
+  const handleDownload = async (exportId) => {
     try {
-      const response = await fetch('/api/v1/exports');
-      const data = await response.json();
-      setExports(data.exports || []);
-    } catch (error) {
-      console.error('Error fetching exports:', error);
+      const download = await api.downloadExport(exportId);
+      const blob = download?.blob instanceof Blob ? download.blob : new Blob([download?.blob ?? '']);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = String(download?.filename || `export-${exportId}`).trim() || `export-${exportId}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setError(downloadError?.response?.data?.detail || 'Could not download export.');
     }
   };
-
-  const fetchStats = async () => {
-    try {
-      const response = await fetch('/api/v1/exports/stats');
-      const data = await response.json();
-      setStats(data);
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDownload = (exportId) => {
-    window.open(`/api/v1/exports/${exportId}/download`, '_blank');
-  };
-
-  if (loading) {
-    return <div className="p-4">Loading exports...</div>;
-  }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold mb-4">Export Management</h3>
+    <section className="space-y-4">
+      <PageHeader title="Export Status" description="Track export volume, formats, and downloadable files." />
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-blue-600">{stats.total_exports || 0}</div>
-          <div className="text-sm text-blue-800">Total Exports</div>
+      {error && (
+        <div className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-200" role="alert">
+          {error}
         </div>
-        <div className="bg-green-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-green-600">
-            {(stats.total_size_bytes / (1024 * 1024)).toFixed(1)} MB
+      )}
+
+      {loading ? (
+        <Section title="Loading exports">
+          <p className="text-sm text-slate-400">Loading exports...</p>
+        </Section>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <Section title="Total exports">
+              <p className="text-2xl font-semibold text-slate-100">{stats.total_exports || 0}</p>
+            </Section>
+            <Section title="Total size">
+              <p className="text-2xl font-semibold text-slate-100">
+                {((Number(stats.total_size_bytes) || 0) / (1024 * 1024)).toFixed(1)} MB
+              </p>
+            </Section>
+            <Section title="Formats">
+              <p className="text-2xl font-semibold text-slate-100">{Object.keys(stats.formats || {}).length}</p>
+            </Section>
           </div>
-          <div className="text-sm text-green-800">Total Size</div>
-        </div>
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-purple-600">{Object.keys(stats.formats || {}).length}</div>
-          <div className="text-sm text-purple-800">Formats</div>
-        </div>
-      </div>
 
-      {/* Export List */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Job
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Format
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Size
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {exports.map((export_) => (
-              <tr key={export_.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {export_.job_name}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
-                  {export_.format}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {(export_.file_size / 1024).toFixed(1)} KB
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {format(new Date(export_.created_at), 'MMM dd, yyyy')}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button
-                    onClick={() => handleDownload(export_.id)}
-                    className="text-blue-600 hover:text-blue-900"
-                  >
-                    Download
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {exports.length === 0 && (
-          <p className="text-gray-500 text-center py-8">No exports found</p>
-        )}
-      </div>
-    </div>
+          <Section title="Export files" description="Download generated files by job and date.">
+            {exports.length === 0 ? (
+              <EmptyState title="No exports found." description="Generated exports will appear here." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-white/10">
+                  <thead className="bg-slate-900/70">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Job</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Format</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Size</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10 bg-slate-950">
+                    {exports.map((exportItem) => (
+                      <tr key={exportItem.id}>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-100">{exportItem.job_name}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm capitalize text-slate-300">{exportItem.format}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-400">{(exportItem.file_size / 1024).toFixed(1)} KB</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-400">{format(new Date(exportItem.created_at), 'MMM dd, yyyy')}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm font-medium">
+                          <button
+                            type="button"
+                            onClick={() => handleDownload(exportItem.id)}
+                            className={`text-sky-300 hover:text-sky-200 ${focusClass}`}
+                          >
+                            Download
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </>
+      )}
+    </section>
   );
 };
 

@@ -1,83 +1,93 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import HistoryFilters from './HistoryFilters';
+import api from '../services/api';
 
 const HistoryTable = () => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({});
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchHistory();
   }, [filters]);
 
+  const mapFiltersToApiParams = (activeFilters) => ({
+    start_date: activeFilters.startDate || undefined,
+    end_date: activeFilters.endDate || undefined,
+    item_type: activeFilters.itemType || undefined,
+    status: activeFilters.status || undefined,
+  });
+
   const fetchHistory = async () => {
     try {
-      const params = new URLSearchParams();
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, value);
-      });
-
-      const response = await fetch(`/api/v1/user/history?${params}`);
-      const data = await response.json();
+      setLoading(true);
+      const data = await api.getUserHistory(mapFiltersToApiParams(filters));
       setHistory(data.items || []);
+      setError('');
     } catch (error) {
       console.error('Error fetching history:', error);
+      setError(error?.response?.data?.detail || 'Could not load history right now.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (itemId, itemType) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
 
     try {
-      await fetch(`/api/v1/user/history/${itemId}?item_type=${itemType}`, {
-        method: 'DELETE',
-      });
-      fetchHistory(); // Refresh
+      await api.deleteHistoryItem(itemId, itemType);
+      await fetchHistory();
     } catch (error) {
       console.error('Error deleting item:', error);
+      setError(error?.response?.data?.detail || 'Could not delete this history item.');
     }
   };
 
   if (loading) {
-    return <div className="p-4">Loading history...</div>;
+    return <div className="p-4 text-textMuted">Loading history...</div>;
   }
 
   return (
-    <div className="bg-white rounded-lg shadow">
+    <div className="rounded-2xl border border-white/10 bg-surface shadow-glow">
       <div className="p-6">
-        <h3 className="text-lg font-semibold mb-4">History</h3>
+        <h3 className="text-lg font-semibold mb-4 text-textMain">History</h3>
+        {error && (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
         <HistoryFilters onFiltersChange={setFilters} />
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-white/10">
+            <thead className="bg-bg/70">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-textMuted uppercase tracking-wider">
                   Type
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-textMuted uppercase tracking-wider">
                   Action
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-textMuted uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-textMuted uppercase tracking-wider">
                   Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-textMuted uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-surface divide-y divide-white/10">
               {history.map((item) => (
                 <tr key={item.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-textMain capitalize">
                     {item.type}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
+                  <td className="px-6 py-4 text-sm text-textMain">
                     {item.title}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -90,7 +100,7 @@ const HistoryTable = () => {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-textMuted">
                     {format(new Date(item.timestamp), 'MMM dd, yyyy HH:mm')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -106,7 +116,7 @@ const HistoryTable = () => {
             </tbody>
           </table>
           {history.length === 0 && (
-            <p className="text-gray-500 text-center py-8">No history items found</p>
+            <p className="text-textMuted text-center py-8">No history items found</p>
           )}
         </div>
       </div>

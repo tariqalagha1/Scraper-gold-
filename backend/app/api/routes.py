@@ -1,8 +1,7 @@
 from fastapi import APIRouter
-from redis.asyncio import Redis
-from sqlalchemy import text
 
 from app.config import settings
+from app.core.service_health import build_health_payload, get_core_services_status
 from app.db.session import engine
 
 
@@ -12,21 +11,7 @@ router = APIRouter()
 @router.get("/health/full", tags=["Health"])
 async def health_full() -> dict[str, object]:
     services: dict[str, str] = {"api": "ok"}
-
-    try:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-        services["database"] = "ok"
-    except Exception:
-        services["database"] = "unavailable"
-
-    try:
-        redis = Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_timeout=settings.REDIS_CONNECT_TIMEOUT)
-        await redis.ping()
-        await redis.close()
-        services["redis"] = "ok"
-    except Exception:
-        services["redis"] = "unavailable"
+    services.update(await get_core_services_status(engine))
 
     try:
         from app.scraper.browser import BrowserManager
@@ -57,11 +42,7 @@ async def health_full() -> dict[str, object]:
     else:
         services["openai"] = "skipped"
 
-    overall_status = "ok" if all(
-        service_status in {"ok", "skipped"} for service_status in services.values()
-    ) else "degraded"
-
-    return {
-        "status": overall_status,
-        "services": services,
-    }
+    status = "ok" if all(value in {"ok", "skipped"} for value in services.values()) else "degraded"
+    payload = build_health_payload(services)
+    payload["status"] = status
+    return payload

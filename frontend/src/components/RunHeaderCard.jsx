@@ -8,6 +8,8 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { formatDate, formatStatus, getStatusColor } from '../utils/helpers';
 
+const SECONDARY_TEXT_COLOR = 'rgba(226, 226, 227, 0.72)';
+
 const RunHeaderCard = ({
   job,
   latestRun,
@@ -17,7 +19,19 @@ const RunHeaderCard = ({
   onStartRun,
   onRetryRun,
 }) => (
-  <Card sx={{ borderRadius: 4, overflow: 'hidden' }}>
+  <Card
+    sx={{
+      borderRadius: 4,
+      overflow: 'hidden',
+      bgcolor: 'rgba(28, 31, 35, 0.84)',
+      border: '1px solid rgba(79, 69, 58, 0.5)',
+      color: '#E2E2E3',
+      boxShadow: 'none',
+      '& .MuiTypography-colorTextSecondary': {
+        color: SECONDARY_TEXT_COLOR,
+      },
+    }}
+  >
     <CardContent>
       <Stack spacing={2}>
         <Box
@@ -31,7 +45,7 @@ const RunHeaderCard = ({
         >
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Typography variant="h4" sx={{ overflowWrap: 'anywhere' }}>{job.url}</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, color: SECONDARY_TEXT_COLOR }}>
               This workspace shows your latest run, explains what happened, and keeps everything in one place.
             </Typography>
             <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>

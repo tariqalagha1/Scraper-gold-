@@ -17,12 +17,15 @@ from app.orchestrator.memory_service import (
     is_memory_usable,
     save_domain_memory,
 )
+from app.schemas.scraper import BrainItScrapeTaskRequest, ScraperAgentNormalizedResult
+from app.services.agent_registry import resolve_agent_for_task, seed_agent_registry
 
 logger = get_logger("app.orchestrator.smart_orchestrator")
 
 AI_ALLOWED_PAGE_TYPES = {"list", "detail", "article", "table", "unknown"}
 AI_ALLOWED_TRAVERSAL_MODES = {"auto", "list_harvest", "detail_drill", "single_detail"}
 AI_ALLOWED_DETAIL_STOP_RULES = {"budget_only", "duplicate_title"}
+AI_ALLOWED_PAGINATION_TYPES = {"auto", "next", "load_more", "scroll"}
 AI_ALLOWED_CONFIG_KEYS = {
     "wait_for_selector",
     "pagination_type",
@@ -34,6 +37,13 @@ AI_ALLOWED_CONFIG_KEYS = {
     "detail_page_limit",
     "detail_stop_rule",
 }
+RECORD_LIMIT_KEYWORDS = {"record", "records", "item", "items", "row", "rows", "entry", "entries", "patient", "patients", "name", "names"}
+
+
+def _create_scraper_agent():
+    from app.agents.scraper_agent import ScraperAgent
+
+    return ScraperAgent()
 
 
 async def classify_page(input_data: dict[str, Any]) -> dict[str, Any]:
@@ -187,6 +197,16 @@ async def decision_layer(input_data: dict[str, Any]) -> dict[str, Any]:
         if ai_strategy
         else str(input_strategy.get("extraction_goal") or prompt or "")
     )
+    if not record_fields:
+        inferred_fields = _infer_record_fields_from_prompt(extraction_goal)
+        if inferred_fields:
+            record_fields = inferred_fields
+            trace["record_fields_inferred"] = True
+
+    requested_record_limit = _extract_prompt_record_limit(extraction_goal)
+    if requested_record_limit is not None:
+        trace["record_limit_hint"] = requested_record_limit
+
     traversal_mode = _infer_traversal_mode(
         page_type=raw_classification["page_type"],
         prompt=extraction_goal,
@@ -241,6 +261,7 @@ async def decision_layer(input_data: dict[str, Any]) -> dict[str, Any]:
         "execution_config": execution_config,
         "extraction_goal": extraction_goal,
         "record_fields": record_fields,
+        "record_limit_hint": requested_record_limit,
         "page_type": raw_classification["page_type"],
         "confidence": boosted_confidence,
         "reason": str(ai_strategy.get("reason") or raw_classification["reason"]) if ai_strategy else raw_classification["reason"],
@@ -749,6 +770,7 @@ def _merge_config_hints(
 ) -> dict[str, Any]:
     merged = _ensure_dict(base_config)
     decision_data = _ensure_dict(decision)
+    prompt = str(decision_data.get("extraction_goal") or merged.get("prompt") or "")
     execution_config = _sanitize_ai_execution_config(decision_data.get("execution_config"))
     for key, value in execution_config.items():
         if key in {"max_pages", "follow_pagination"}:
@@ -757,6 +779,17 @@ def _merge_config_hints(
             merged[key] = value
     if decision_data.get("extraction_goal") and not merged.get("prompt"):
         merged["prompt"] = str(decision_data["extraction_goal"])
+    requested_record_limit = _coerce_record_limit(
+        decision_data.get("record_limit_hint"),
+        default=_extract_prompt_record_limit(prompt),
+    )
+    if requested_record_limit is not None:
+        merged.setdefault("max_records", requested_record_limit)
+        if bool(merged.get("follow_pagination", True)):
+            merged["max_pages"] = max(
+                int(merged.get("max_pages", 1) or 1),
+                _page_budget_from_record_limit(requested_record_limit),
+            )
     return merged
 
 
@@ -796,6 +829,11 @@ def _sanitize_ai_execution_config(value: Any) -> dict[str, Any]:
             if normalized_mode:
                 normalized[normalized_key] = normalized_mode
             continue
+        if normalized_key == "pagination_type":
+            normalized_pagination = _normalize_pagination_type(item)
+            if normalized_pagination:
+                normalized[normalized_key] = normalized_pagination
+            continue
         if normalized_key == "detail_page_limit":
             normalized_limit = _normalize_detail_page_limit(item)
             if normalized_limit is not None:
@@ -818,6 +856,17 @@ def _normalize_traversal_mode(value: Any) -> str:
 def _normalize_detail_stop_rule(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in AI_ALLOWED_DETAIL_STOP_RULES else ""
+
+
+def _normalize_pagination_type(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized in {"load-more", "loadmore"}:
+        return "load_more"
+    if normalized in {"infinite", "infinite_scroll"}:
+        return "scroll"
+    return normalized if normalized in AI_ALLOWED_PAGINATION_TYPES else ""
 
 
 def _normalize_detail_page_limit(value: Any) -> int | None:
@@ -989,6 +1038,98 @@ def _extract_prompt_detail_count(prompt: str) -> int | None:
     return None
 
 
+def _extract_prompt_record_limit(prompt: str) -> int | None:
+    if not prompt:
+        return None
+
+    lowered = str(prompt).strip().lower()
+    explicit_count = re.search(
+        r"\b(?:first|top|last|limit|max(?:imum)?|up to)\s+(\d{1,4})\b",
+        lowered,
+    )
+    if explicit_count:
+        return _coerce_record_limit(explicit_count.group(1))
+
+    noun_count = re.search(
+        r"\b(\d{1,4})\s+(records?|items?|rows?|entries|patients?|names?)\b",
+        lowered,
+    )
+    if noun_count and noun_count.group(2).strip().lower() in RECORD_LIMIT_KEYWORDS:
+        return _coerce_record_limit(noun_count.group(1))
+
+    # Fallback for noisy prompts/typos such as "200 pateint names".
+    if re.search(r"\b(names?|patients?|records?|items?|rows?|entries?)\b", lowered):
+        any_number = re.search(r"\b(\d{1,4})\b", lowered)
+        if any_number:
+            return _coerce_record_limit(any_number.group(1))
+
+    return None
+
+
+def _infer_record_fields_from_prompt(prompt: str) -> list[str]:
+    if not prompt:
+        return []
+
+    lowered = str(prompt).strip().lower()
+    detected_fields: list[str] = []
+
+    def add(field: str) -> None:
+        if field not in detected_fields:
+            detected_fields.append(field)
+
+    if any(marker in lowered for marker in {"name", "names", "patient name", "patient names", "full name"}):
+        add("name")
+    if any(marker in lowered for marker in {"phone", "phone number", "mobile", "telephone", "contact"}):
+        add("phone_number")
+    if any(marker in lowered for marker in {"national id", "id number", "national number"}):
+        add("national_id")
+    if any(marker in lowered for marker in {"registration", "mrn", "record no", "registration no"}):
+        add("registration_no")
+    if any(marker in lowered for marker in {"age", "ages"}):
+        add("age")
+    if any(marker in lowered for marker in {"gender", "sex"}):
+        add("gender")
+    if any(marker in lowered for marker in {"status", "active", "inactive"}):
+        add("status")
+
+    if "name" in detected_fields and re.search(r"\b(?:names?|name)\s+only\b", lowered):
+        return ["name"]
+    return detected_fields
+
+
+def _prompt_requests_specific_pagination_mode(prompt: str) -> bool:
+    lowered = str(prompt or "").strip().lower()
+    if not lowered:
+        return False
+    markers = {
+        "scroll",
+        "infinite scroll",
+        "load more",
+        "show more",
+        "next page",
+        "pagination",
+    }
+    return any(marker in lowered for marker in markers)
+
+
+def _coerce_record_limit(value: Any, default: int | None = None) -> int | None:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return default
+    if normalized <= 0:
+        return default
+    return min(5000, normalized)
+
+
+def _page_budget_from_record_limit(requested_record_limit: int) -> int:
+    records_per_page_estimate = 20
+    safety_multiplier = 1.25
+    baseline_pages = max(1, int((requested_record_limit + records_per_page_estimate - 1) / records_per_page_estimate))
+    buffered_pages = max(1, int(baseline_pages * safety_multiplier + 0.9999))
+    return min(1000, buffered_pages)
+
+
 def _infer_detail_stop_rule(
     *,
     traversal_mode: str,
@@ -1150,11 +1291,88 @@ class SmartOrchestrator:
         self,
         executor: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] = run_pipeline,
     ) -> None:
+        seed_agent_registry()
         self._executor = executor
+
+    async def _run_scrape_task(self, input_data: dict[str, Any]) -> dict[str, Any]:
+        task_request = BrainItScrapeTaskRequest.model_validate(input_data)
+        registry_entry = resolve_agent_for_task(task_request.task_type)
+        if registry_entry is None:
+            raise ValueError("No enabled agent is registered for task_type='scrape'.")
+
+        task_payload = task_request.model_dump(exclude_none=True)
+        if not task_payload.get("task_id"):
+            task_payload["task_id"] = str(input_data.get("run_id") or input_data.get("job_id") or "")
+
+        scraper_agent = _create_scraper_agent()
+        result = await scraper_agent.safe_execute(task_payload)
+        if result.get("status") != "success":
+            failed_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            return {
+                "task_type": "scrape",
+                "status": "failed",
+                "agent": "scraper_agent",
+                "summary": failed_data.get("summary", {"total": 0, "coverage": 0.0, "confidence": 0.0}),
+                "output_payload": failed_data.get(
+                    "output_payload",
+                    {
+                        "data": [],
+                        "sources": [],
+                        "quality": {
+                            "duplicates_removed": 0,
+                            "coverage": 0.0,
+                            "confidence": 0.0,
+                            "missing_fields": {},
+                            "normalized_fields": 0,
+                        },
+                        "errors": [str(result.get("error") or "Scraper integration failed.")],
+                        "request_id": str(task_payload.get("task_id") or ""),
+                        "execution_time": 0.0,
+                    },
+                ),
+                "insights": failed_data.get(
+                    "insights",
+                    {
+                        "summary": "No usable records were returned from Smart Scraper.",
+                        "key_findings": [
+                            "No source distribution was reported.",
+                            "Requested fields could not be evaluated.",
+                            "The scraper integration returned a failed status.",
+                        ],
+                        "data_quality_note": "Result quality is low because no usable records were returned.",
+                        "recommended_next_step": "Refine the query or location and run again.",
+                    },
+                ),
+                "execution_steps": failed_data.get("execution_steps", []),
+                "metadata": failed_data.get("metadata", {"service": "smart-scraper", "task_type": "scrape"}),
+                "errors": [str(result.get("error") or "Scraper integration failed.")],
+            }
+
+        normalized_payload = _ensure_dict(result.get("data", {}))
+        output_payload = _ensure_dict(normalized_payload.get("output_payload"))
+        if not str(output_payload.get("request_id") or "").strip():
+            output_payload["request_id"] = str(task_payload.get("task_id") or "")
+            normalized_payload["output_payload"] = output_payload
+
+        normalized = ScraperAgentNormalizedResult.model_validate(normalized_payload)
+        return {
+            "task_type": "scrape",
+            "status": normalized.status,
+            "agent": normalized.agent,
+            "summary": normalized.summary.model_dump(),
+            "output_payload": normalized.output_payload.model_dump(),
+            "insights": normalized.insights.model_dump(),
+            "execution_steps": [step.model_dump() for step in normalized.execution_steps],
+            "metadata": normalized.metadata.model_dump(),
+            "errors": normalized.output_payload.errors,
+        }
 
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
         # Copy the caller input so we do not mutate existing execution payloads.
         payload = dict(input_data)
+        if str(payload.get("task_type") or "").strip().lower() == "scrape":
+            return await self._run_scrape_task(payload)
+
         url_error = validate_scrape_url(str(payload.get("url") or ""), field_name="url")
         if url_error:
             raise ValueError(url_error)

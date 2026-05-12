@@ -1,10 +1,10 @@
-"""FAISS index management."""
-from typing import Any, Dict, List, Optional
-import logging
-import os
-import pickle
+"""PGVector index management."""
+from __future__ import annotations
 
-import numpy as np
+import asyncio
+import logging
+from typing import Any
+from uuid import uuid4
 
 from app.config import settings
 
@@ -12,171 +12,120 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-class FAISSIndexManager:
-    """Manages FAISS indexes for vector storage and retrieval.
-    
-    Handles:
-    - Index creation and loading
-    - Adding embeddings to index
-    - Persisting indexes to disk
-    """
-    
-    def __init__(self, dimension: int = 384):
-        """Initialize the FAISS index manager.
-        
-        Args:
-            dimension: Dimension of embedding vectors
-        """
-        self.dimension = dimension
-        self._indexes: Dict[int, Any] = {}  # user_id -> index
-        self._metadata: Dict[int, List[Dict]] = {}  # user_id -> list of metadata
-        self._index_dir = os.path.join(settings.STORAGE_ROOT, "faiss_indexes")
-        os.makedirs(self._index_dir, exist_ok=True)
-    
-    async def add_items(
-        self,
-        items: List[Dict[str, Any]],
-        user_id: int,
-    ) -> int:
-        """Add items with embeddings to the index.
-        
-        Args:
-            items: List of items with embeddings
-            user_id: User ID for scoped index
-            
-        Returns:
-            Number of items added
-        """
+class _NoopEmbeddings:
+    """Satisfies PGVector embedding interface when using precomputed vectors."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0] for _ in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return [0.0]
+
+
+class PGVectorIndexManager:
+    """Manages PGVector-backed vector storage and retrieval."""
+
+    def __init__(self) -> None:
+        self.collection_name = "scraper_vectors"
+        self._store = None
+
+    def _connection_string(self) -> str | None:
+        connection = str(settings.DATABASE_URL or "").strip()
+        if not connection.startswith("postgresql"):
+            return None
+        if connection.startswith("postgresql+asyncpg://"):
+            return connection.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+        if connection.startswith("postgresql://"):
+            return connection.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return connection
+
+    def _get_store(self):
+        if self._store is not None:
+            return self._store
+
+        from langchain_community.vectorstores import PGVector
+
+        connection_string = self._connection_string()
+        if not connection_string:
+            raise RuntimeError("DATABASE_URL must be a PostgreSQL URL to use PGVector.")
+
+        self._store = PGVector(
+            connection_string=connection_string,
+            embedding_function=_NoopEmbeddings(),
+            collection_name=self.collection_name,
+            use_jsonb=True,
+        )
+        return self._store
+
+    async def add_items(self, items: list[dict[str, Any]], user_id: Any) -> int:
+        """Add items with embeddings to the pgvector collection."""
+        embeddings: list[list[float]] = []
+        texts: list[str] = []
+        metadatas: list[dict[str, Any]] = []
+        ids: list[str] = []
+
+        for item in items:
+            embedding = item.get("embedding")
+            if not embedding:
+                continue
+            item_id = item.get("item_id") or str(uuid4())
+            embeddings.append(embedding)
+            texts.append(
+                str(item.get("text") or item.get("content") or item.get("title") or item_id)
+            )
+            metadatas.append(
+                {
+                    "item_id": str(item_id),
+                    "user_id": str(user_id),
+                }
+            )
+            ids.append(str(item_id))
+
+        if not embeddings:
+            return 0
+
         try:
-            import faiss
-            
-            # Get or create index for user
-            index = self._get_or_create_index(user_id)
-            
-            # Extract embeddings
-            embeddings = []
-            metadata_list = []
-            
-            for item in items:
-                embedding = item.get("embedding")
-                if embedding:
-                    embeddings.append(embedding)
-                    metadata_list.append({
-                        "item_id": item.get("item_id"),
-                        "index_position": len(self._metadata.get(user_id, [])) + len(metadata_list),
-                    })
-            
-            if not embeddings:
-                return 0
-            
-            # Convert to numpy array
-            embeddings_array = np.array(embeddings, dtype=np.float32)
-            
-            # Add to index
-            index.add(embeddings_array)
-            
-            # Store metadata
-            if user_id not in self._metadata:
-                self._metadata[user_id] = []
-            self._metadata[user_id].extend(metadata_list)
-            
-            # Save index
-            await self._save_index(user_id)
-            
+            store = self._get_store()
+            await asyncio.to_thread(
+                store.add_embeddings,
+                texts=texts,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids,
+            )
             return len(embeddings)
-            
-        except Exception as e:
-            logger.error(f"Error adding items to index: {str(e)}")
+        except Exception as exc:
+            logger.error("Error adding items to pgvector index: %s", exc)
             raise
-    
+
     async def search(
         self,
-        query_embedding: List[float],
-        user_id: int,
+        query_embedding: list[float],
+        user_id: Any,
         k: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """Search the index for similar items.
-        
-        Args:
-            query_embedding: Query embedding vector
-            user_id: User ID for scoped index
-            k: Number of results to return
-            
-        Returns:
-            List of search results with scores
-        """
+    ) -> list[dict[str, Any]]:
+        """Search the pgvector collection for similar items."""
         try:
-            index = self._get_or_create_index(user_id)
-            
-            if index.ntotal == 0:
-                return []
-            
-            # Convert query to numpy array
-            query_array = np.array([query_embedding], dtype=np.float32)
-            
-            # Search
-            distances, indices = index.search(query_array, min(k, index.ntotal))
-            
-            # Get metadata for results
-            results = []
-            metadata = self._metadata.get(user_id, [])
-            
-            for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
-                if idx >= 0 and idx < len(metadata):
-                    results.append({
-                        "index": int(idx),
-                        "distance": float(distance),
-                        "score": 1.0 / (1.0 + float(distance)),
-                        "metadata": metadata[idx],
-                    })
-            
+            store = self._get_store()
+            matches = await asyncio.to_thread(
+                store.similarity_search_with_score_by_vector,
+                embedding=query_embedding,
+                k=k,
+                filter={"user_id": str(user_id)},
+            )
+            results: list[dict[str, Any]] = []
+            for index, (document, score) in enumerate(matches):
+                metadata = document.metadata or {}
+                raw_score = float(score)
+                results.append(
+                    {
+                        "index": index,
+                        "distance": raw_score,
+                        "score": 1.0 / (1.0 + max(raw_score, 0.0)),
+                        "metadata": metadata,
+                    }
+                )
             return results
-            
-        except Exception as e:
-            logger.error(f"Error searching index: {str(e)}")
+        except Exception as exc:
+            logger.error("Error searching pgvector index: %s", exc)
             return []
-    
-    def _get_or_create_index(self, user_id: int):
-        """Get or create a FAISS index for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            FAISS index
-        """
-        import faiss
-        
-        if user_id not in self._indexes:
-            # Try to load from disk
-            index_path = os.path.join(self._index_dir, f"index_{user_id}.faiss")
-            metadata_path = os.path.join(self._index_dir, f"metadata_{user_id}.pkl")
-            
-            if os.path.exists(index_path):
-                self._indexes[user_id] = faiss.read_index(index_path)
-                if os.path.exists(metadata_path):
-                    with open(metadata_path, "rb") as f:
-                        self._metadata[user_id] = pickle.load(f)
-            else:
-                # Create new index
-                self._indexes[user_id] = faiss.IndexFlatL2(self.dimension)
-                self._metadata[user_id] = []
-        
-        return self._indexes[user_id]
-    
-    async def _save_index(self, user_id: int) -> None:
-        """Save index to disk.
-        
-        Args:
-            user_id: User ID
-        """
-        import faiss
-        
-        if user_id in self._indexes:
-            index_path = os.path.join(self._index_dir, f"index_{user_id}.faiss")
-            metadata_path = os.path.join(self._index_dir, f"metadata_{user_id}.pkl")
-            
-            faiss.write_index(self._indexes[user_id], index_path)
-            
-            with open(metadata_path, "wb") as f:
-                pickle.dump(self._metadata.get(user_id, []), f)

@@ -520,6 +520,69 @@ async def test_smart_orchestrator_uses_openai_strategy_for_execution_hints(monke
     assert result["execution"]["memory"]["selector_source"] == "ai"
 
 
+async def test_smart_orchestrator_drops_invalid_pagination_type_hint(monkeypatch):
+    captured = {}
+
+    async def fake_executor(input_data):
+        captured.update(input_data)
+        return {
+            "status": "completed",
+            "job_id": "job-ai-invalid-pagination",
+            "run_id": "run-ai-invalid-pagination",
+            "user_id": "user-ai-invalid-pagination",
+            "url": input_data["url"],
+            "scraping_type": input_data["scrape_type"],
+            "credentials": input_data.get("credentials", {}),
+            "raw_data": {},
+            "processed_data": {
+                "summary": "ok",
+                "page_type": "list",
+                "items": [{"title": "Item One", "link": "https://example.com/item-1"}],
+            },
+            "vector_data": {},
+            "analysis_data": {},
+            "export_paths": {},
+            "errors": [],
+            "config": input_data.get("config", {}),
+            "strategy": input_data.get("strategy", {}),
+            "current_step": "processing",
+            "started_at": "2026-03-24T12:00:00+00:00",
+            "finished_at": "2026-03-24T12:00:01+00:00",
+            "node_timings": {"processing": 0.1},
+        }
+
+    async def fake_openai_json(**kwargs):
+        return {
+            "page_type": "list",
+            "reason": "Listing page.",
+            "selectors": {"container": ".row"},
+            "execution_config": {
+                "wait_for_selector": ".row",
+                "pagination_type": "none",
+            },
+            "record_fields": ["title", "link"],
+            "extraction_goal": "Collect listed items",
+            "confidence": 0.91,
+        }
+
+    monkeypatch.setattr(smart_module, "request_openai_json", fake_openai_json)
+    monkeypatch.setattr(smart_module, "get_domain_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(smart_module, "is_memory_usable", lambda *args, **kwargs: False)
+    monkeypatch.setattr(smart_module, "save_domain_memory", lambda *args, **kwargs: None)
+
+    await SmartOrchestrator(executor=fake_executor).run(
+        {
+            "url": "https://example.com/catalog",
+            "scrape_type": "structured",
+            "credentials": {"providers": {"openai": "user-openai-key"}},
+            "config": {"prompt": "Collect listed items"},
+        }
+    )
+
+    assert captured["config"]["wait_for_selector"] == ".row"
+    assert "pagination_type" not in captured["config"]
+
+
 async def test_decision_layer_infers_detail_drill_from_prompt_and_record_fields(monkeypatch):
     monkeypatch.setattr(smart_module, "resolve_openai_api_key", lambda providers: "")
 
@@ -571,6 +634,75 @@ async def test_decision_layer_limits_detail_pages_for_sampling_prompts(monkeypat
     assert decision["execution_config"]["traversal_mode"] == "detail_drill"
     assert decision["execution_config"]["detail_page_limit"] == 2
     assert decision["execution_config"]["detail_stop_rule"] == "budget_only"
+
+
+async def test_decision_layer_infers_record_limit_and_name_field_from_prompt(monkeypatch):
+    monkeypatch.setattr(smart_module, "resolve_openai_api_key", lambda providers: "")
+
+    decision = await smart_module.decision_layer(
+        {
+            "url": "https://example.com/patients",
+            "config": {
+                "prompt": "Scrape 200 pateint names only",
+            },
+        }
+    )
+
+    assert decision["record_fields"] == ["name"]
+    assert decision["record_limit_hint"] == 200
+
+
+async def test_smart_orchestrator_applies_prompt_record_limit_to_runtime_config(monkeypatch):
+    captured = {}
+
+    async def fake_executor(input_data):
+        captured.update(input_data)
+        return {
+            "status": "completed",
+            "job_id": "job-record-limit",
+            "run_id": "run-record-limit",
+            "user_id": "user-record-limit",
+            "url": input_data["url"],
+            "scraping_type": input_data["scrape_type"],
+            "credentials": input_data.get("credentials", {}),
+            "raw_data": {},
+            "processed_data": {
+                "summary": "ok",
+                "page_type": "list",
+                "items": [{"name": "Patient One"}],
+            },
+            "vector_data": {},
+            "analysis_data": {},
+            "export_paths": {},
+            "errors": [],
+            "config": input_data.get("config", {}),
+            "strategy": input_data.get("strategy", {}),
+            "current_step": "processing",
+            "started_at": "2026-03-24T12:00:00+00:00",
+            "finished_at": "2026-03-24T12:00:01+00:00",
+            "node_timings": {"processing": 0.1},
+        }
+
+    monkeypatch.setattr(smart_module, "resolve_openai_api_key", lambda providers: "")
+    monkeypatch.setattr(smart_module, "get_domain_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(smart_module, "is_memory_usable", lambda *args, **kwargs: False)
+    monkeypatch.setattr(smart_module, "save_domain_memory", lambda *args, **kwargs: None)
+
+    await SmartOrchestrator(executor=fake_executor).run(
+        {
+            "url": "https://example.com/patients",
+            "scrape_type": "structured",
+            "config": {
+                "prompt": "scrape 200 patient names",
+                "follow_pagination": True,
+                "max_pages": 2,
+            },
+        }
+    )
+
+    assert captured["config"]["max_records"] == 200
+    assert captured["config"]["max_pages"] >= 13
+    assert captured["strategy"]["record_fields"] == ["name"]
 
 
 async def test_smart_orchestrator_uses_openai_repair_during_retry(monkeypatch):

@@ -1,15 +1,12 @@
 import asyncio
+import signal
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any
 from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from redis.asyncio import Redis
-from sqlalchemy import text
 
 from app.api import v1_router
 from app.api.routes import router as root_router
@@ -18,10 +15,18 @@ from app.core.config import validate_required_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logger import clear_request_id, set_request_id
 from app.core.logging import get_logger
+from app.core.service_health import (
+    assert_startup_dependencies,
+    assert_redis_broker_available,
+    build_health_payload,
+    check_scraper_integration_service,
+    get_core_services_status,
+)
 from app.db.session import close_db, engine, init_db
+from app.execution.export_task_registry import cancel_all_export_tasks
+from app.execution.task_registry import cancel_all_tasks
 from app.middleware.rate_limit import RedisRateLimitMiddleware
 from app.orchestrator.memory_service import log_memory_backend_startup_status
-from app.queue.celery_app import celery_app
 
 # Initialize Sentry
 if settings.SENTRY_DSN:
@@ -43,24 +48,62 @@ if settings.SENTRY_DSN:
 
 
 logger = get_logger("app.main")
+shutdown_event = asyncio.Event()
+
+
+def handle_shutdown(*_: object) -> None:
+    shutdown_event.set()
+
+
+def configure_signal_handlers() -> None:
+    try:
+        signal.signal(signal.SIGTERM, handle_shutdown)
+        signal.signal(signal.SIGINT, handle_shutdown)
+    except ValueError:
+        # Signal handlers can only be set in the main thread.
+        return
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    validate_required_settings()
-    logger.info("Application startup initiated.", environment=settings.ENVIRONMENT)
+    try:
+        validate_required_settings()
+    except Exception as exc:
+        logger.error(
+            "Startup configuration invalid. Missing or invalid required environment settings.",
+            error=str(exc),
+        )
+        raise
+
+    logger.info(
+        "Application startup initiated.",
+        environment=settings.ENVIRONMENT,
+        broker_url=settings.REDIS_URL,
+        scraper_base_url=settings.SCRAPER_BASE_URL,
+        scraper_api_key_configured=bool(str(settings.SCRAPER_API_KEY).strip()),
+    )
+    await assert_redis_broker_available()
     await init_db()
+    await assert_startup_dependencies(engine)
     log_memory_backend_startup_status()
     logger.info("Application startup completed.")
     try:
         yield
     finally:
         logger.info("Application shutdown initiated.")
+        if shutdown_event.is_set():
+            handles: list[asyncio.Task[object]] = []
+            handles.extend(cancel_all_tasks())
+            handles.extend(cancel_all_export_tasks())
+            if handles:
+                logger.info("Cancelling active in-process tasks.", task_count=len(handles))
+                await asyncio.gather(*handles, return_exceptions=True)
         await close_db()
         logger.info("Application shutdown completed.")
 
 
 def create_app() -> FastAPI:
+    configure_signal_handlers()
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
@@ -79,6 +122,12 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RedisRateLimitMiddleware)
 
+    @app.get("/health")
+    async def health() -> dict[str, object]:
+        services = await get_core_services_status(engine)
+        services["scraper"] = await check_scraper_integration_service()
+        return build_health_payload(services)
+
     @app.middleware("http")
     async def enforce_request_limits(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid4())
@@ -94,9 +143,14 @@ def create_app() -> FastAPI:
             if settings.ENABLE_SECURITY_HEADERS:
                 response.headers["X-Content-Type-Options"] = "nosniff"
                 response.headers["X-Frame-Options"] = "DENY"
+                response.headers["X-DNS-Prefetch-Control"] = "off"
+                response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
                 response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+                response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
                 response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
                 response.headers["Cache-Control"] = "no-store"
+                response.headers["Pragma"] = "no-cache"
                 response.headers["Content-Security-Policy"] = (
                     "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
                     "form-action 'self'; object-src 'none'"
@@ -147,42 +201,6 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(root_router)
     app.include_router(v1_router)
-
-    @app.get("/health", tags=["Health"])
-    async def health_check() -> dict[str, Any]:
-        services = {"database": "unavailable", "redis": "unavailable", "queue": "unavailable"}
-
-        try:
-            async with engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
-            services["database"] = "ok"
-        except Exception:
-            services["database"] = "unavailable"
-
-        try:
-            redis = Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_timeout=settings.REDIS_CONNECT_TIMEOUT)
-            await redis.ping()
-            await redis.close()
-            services["redis"] = "ok"
-        except Exception:
-            services["redis"] = "unavailable"
-
-        try:
-            await asyncio.to_thread(
-                lambda: celery_app.connection_for_read().ensure_connection(max_retries=0)
-            )
-            services["queue"] = "ok"
-        except Exception:
-            services["queue"] = "unavailable"
-
-        return {
-            "status": "ok" if all(value == "ok" for value in services.values()) else "degraded",
-            "service": settings.APP_NAME,
-            "version": settings.APP_VERSION,
-            "environment": settings.ENVIRONMENT,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "services": services,
-        }
 
     return app
 

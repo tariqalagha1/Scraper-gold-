@@ -61,6 +61,23 @@ describe('LoginPage', () => {
     expect(await screen.findByText('Enter a valid email and password to sign in.')).toBeInTheDocument();
   });
 
+  test('blocks submit when email format is invalid', async () => {
+    render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'tarik' } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'secret123' } });
+    fireEvent.click(getSubmitButton());
+
+    expect(
+      await screen.findByText('Please enter a full email address (example: name@example.com).')
+    ).toBeInTheDocument();
+    expect(login).not.toHaveBeenCalled();
+  });
+
   test('redirects to the dashboard after a successful login', async () => {
     login.mockResolvedValue({ success: true });
 
@@ -73,7 +90,7 @@ describe('LoginPage', () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'demo@example.com' } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'Demo@Example.COM ' } });
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'secret123' } });
     fireEvent.click(getSubmitButton());
 
@@ -84,7 +101,7 @@ describe('LoginPage', () => {
   test('shows the backend offline message returned by register', async () => {
     register.mockResolvedValue({
       success: false,
-      error: 'Cannot reach the API server at http://127.0.0.1:8000/api/v1. Start the backend and try again.',
+      error: 'Cannot reach the API server at http://127.0.0.1:8001/api/v1. Start the backend and try again.',
     });
 
     render(
@@ -101,7 +118,7 @@ describe('LoginPage', () => {
 
     expect(
       await screen.findByText(
-        'Cannot reach the API server at http://127.0.0.1:8000/api/v1. Start the backend and try again.'
+        'Cannot reach the API server at http://127.0.0.1:8001/api/v1. Start the backend and try again.'
       )
     ).toBeInTheDocument();
   });

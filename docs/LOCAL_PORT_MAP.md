@@ -4,34 +4,32 @@ When you run several projects at the same time, use this port map for `scraper-m
 
 ## Recommended ports for this project
 
-- Frontend (React): `43101`
-- Backend API (FastAPI): `43102`
+- Frontend (React): `43102`
+- Backend API (FastAPI): `8001`
 - Redis: `46379`
 - PostgreSQL: `45432`
 
 ## Quick start commands
 
-### Frontend
+### Single-command startup
+
+```bash
+./scripts/dev-up.sh
+```
+
+### Frontend (manual)
 
 ```bash
 cd frontend
-npm run start:43101:api43102
+PORT=43102 REACT_APP_API_URL=http://127.0.0.1:8001/api/v1 npm start
 ```
 
-### Backend API
+### Backend API (manual)
 
 ```bash
 cd backend
 source venv/bin/activate
-PORT=43102 uvicorn app.main:app --host 127.0.0.1 --port 43102 --reload
-```
-
-### Celery worker (if needed)
-
-```bash
-cd backend
-source venv/bin/activate
-REDIS_URL=redis://127.0.0.1:46379/0 celery -A app.core.celery:celery_app worker -l info
+PORT=8001 uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 ## Environment alignment
@@ -39,13 +37,17 @@ REDIS_URL=redis://127.0.0.1:46379/0 celery -A app.core.celery:celery_app worker 
 If you use a local `.env`, align these values:
 
 ```dotenv
-REACT_APP_API_URL=http://127.0.0.1:43102/api/v1
-BACKEND_PORT=43102
-FRONTEND_PORT=43101
+REACT_APP_API_URL=http://127.0.0.1:8001/api/v1
+REACT_APP_API_KEY=dev-api-key-change-me
+REACT_APP_API_KEY_HEADER_NAME=X-API-Key
+BACKEND_PORT=8001
+FRONTEND_PORT=43102
 REDIS_PORT=46379
 POSTGRES_PORT=45432
 DATABASE_URL=postgresql+asyncpg://scraper:scraper_password_change_me@127.0.0.1:45432/scraper_db
 REDIS_URL=redis://127.0.0.1:46379/0
+API_KEY=dev-api-key-change-me
+API_KEY_HEADER_NAME=X-API-Key
 ```
 
 ## Check collisions before starting

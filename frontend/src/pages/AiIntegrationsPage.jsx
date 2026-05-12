@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import SectionHeader from '../components/SectionHeader';
-import StatusBadge from '../components/StatusBadge';
-import api from '../services/api';
+import api, { extractApiErrorMessage } from '../services/api';
+import { PageHeader, PrimaryButton, Section } from '../components/ui';
 
 const PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
@@ -10,106 +9,112 @@ const PROVIDERS = [
   { value: 'gemini', label: 'Gemini' },
 ];
 
-const AiIntegrationsPage = () => {
+const focusClass = 'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-slate-950';
+
+const IntegrationsPage = () => {
   const [provider, setProvider] = useState('openai');
   const [apiKey, setApiKey] = useState('');
   const [credentials, setCredentials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState({ type: '', message: '' });
-
-  useEffect(() => {
-    loadCredentials();
-  }, []);
-
-  const loadCredentials = async () => {
-    try {
-      setLoading(true);
-      const items = await api.getCredentials();
-      setCredentials(items);
-      setNotice({ type: '', message: '' });
-    } catch (error) {
-      setNotice({ type: 'error', message: 'Could not load saved provider credentials.' });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [removing, setRemoving] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const currentCredential = useMemo(
     () => credentials.find((item) => item.provider === provider) || null,
     [credentials, provider]
   );
 
+  const loadCredentials = async () => {
+    try {
+      setLoading(true);
+      const items = await api.getCredentials();
+      setCredentials(items || []);
+      setError('');
+    } catch (loadError) {
+      setError(extractApiErrorMessage(loadError, 'Could not load provider credentials.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCredentials();
+  }, []);
+
   const handleSave = async () => {
-    if (!apiKey.trim()) {
-      setNotice({ type: 'error', message: 'Enter a provider key before saving.' });
+    const normalizedKey = String(apiKey || '').trim();
+    if (!normalizedKey) {
+      setError('Enter an API key before saving.');
       return;
     }
 
     try {
       setSaving(true);
-      const saved = await api.saveCredential({ provider, api_key: apiKey });
+      const saved = await api.saveCredential({ provider, api_key: normalizedKey });
       setCredentials((previous) => {
-        const remaining = previous.filter((item) => item.provider !== saved.provider);
-        return [...remaining, saved].sort((left, right) => left.provider.localeCompare(right.provider));
+        const next = previous.filter((item) => item.provider !== saved.provider);
+        return [...next, saved].sort((left, right) => left.provider.localeCompare(right.provider));
       });
       setApiKey('');
-      setNotice({ type: 'success', message: `${provider} key saved securely.` });
-    } catch (error) {
-      setNotice({ type: 'error', message: error.response?.data?.detail || 'Could not save provider key.' });
+      setError('');
+      setNotice(`${provider} key saved securely.`);
+    } catch (saveError) {
+      setError(extractApiErrorMessage(saveError, 'Could not save provider key.'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (targetProvider) => {
+    if (!targetProvider || removing) return;
+
     try {
+      setRemoving(targetProvider);
       await api.deleteCredential(targetProvider);
       setCredentials((previous) => previous.filter((item) => item.provider !== targetProvider));
-      if (provider === targetProvider) {
-        setApiKey('');
-      }
-      setNotice({ type: 'success', message: `${targetProvider} key deleted.` });
-    } catch (error) {
-      setNotice({ type: 'error', message: error.response?.data?.detail || 'Could not delete provider key.' });
+      setNotice(`${targetProvider} key removed.`);
+      setError('');
+    } catch (removeError) {
+      setError(extractApiErrorMessage(removeError, 'Could not remove provider key.'));
+    } finally {
+      setRemoving('');
     }
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
-      <SectionHeader
-        eyebrow="AgentCore Integration"
-        title="AI Integrations"
-        description="Provider keys are encrypted in the backend, never returned raw, and injected into backend execution only."
+    <section className="space-y-4">
+      <PageHeader
+        title="Integrations"
+        description="Manage AI provider credentials and verify connection status."
       />
 
-      {notice.message && (
+      {(error || notice) && (
         <div
-          className={`mt-8 rounded-3xl border px-5 py-4 text-sm ${
-            notice.type === 'error'
-              ? 'border-danger/30 bg-danger/10 text-danger'
-              : 'border-success/30 bg-success/10 text-success'
+          className={`rounded-xl border px-3 py-2 text-sm ${
+            error
+              ? 'border-red-400/30 bg-red-400/10 text-red-200'
+              : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
           }`}
+          role={error ? 'alert' : 'status'}
         >
-          {notice.message}
+          {error || notice}
         </div>
       )}
 
-      <div className="mt-10 grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[28px] border border-white/10 bg-surface p-6 shadow-glow">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">API Keys</p>
-          <h3 className="mt-3 text-2xl font-semibold text-textMain">Connect providers</h3>
-          <p className="mt-3 text-sm leading-6 text-textMuted">
-            Add or update one provider key at a time. The raw value is accepted once, encrypted in the backend, and never shown again.
-          </p>
-
-          <div className="mt-6 space-y-4">
-            <div>
-              <label className="mb-2 block text-sm text-textMuted">Provider</label>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Section title="Manage provider key" description="Add or rotate one provider key at a time.">
+          <div className="space-y-3">
+            <div className="space-y-1 text-sm">
+              <label htmlFor="integration-provider" className="text-slate-400">
+                Provider
+              </label>
               <select
+                id="integration-provider"
                 value={provider}
                 onChange={(event) => setProvider(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-bg px-4 py-3 text-sm text-textMain outline-none focus:border-accent/40"
+                className={`w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 ${focusClass}`}
               >
                 {PROVIDERS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -119,89 +124,86 @@ const AiIntegrationsPage = () => {
               </select>
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm text-textMuted">API Key</label>
+            <div className="space-y-1 text-sm">
+              <label htmlFor="integration-api-key" className="text-slate-400">
+                API key
+              </label>
               <input
+                id="integration-api-key"
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder="Paste provider key"
-                className="w-full rounded-2xl border border-white/10 bg-bg px-4 py-3 text-sm text-textMain outline-none placeholder:text-textMuted/60 focus:border-accent/40"
+                className={`w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 placeholder:text-slate-500 ${focusClass}`}
               />
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled={saving}
-                onClick={handleSave}
-                className="rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-bg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? 'Saving...' : currentCredential ? 'Update Key' : 'Add Key'}
-              </button>
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton type="button" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : currentCredential ? 'Update key' : 'Save key'}
+              </PrimaryButton>
+
               {currentCredential && (
                 <button
                   type="button"
                   onClick={() => handleDelete(provider)}
-                  className="rounded-2xl border border-white/10 px-5 py-3 text-sm text-textMuted transition hover:border-danger/30 hover:text-danger"
+                  disabled={removing === provider}
+                  className={`w-full rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-200 transition hover:border-red-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${focusClass}`}
                 >
-                  Delete Key
+                  {removing === provider ? 'Removing...' : 'Remove key'}
                 </button>
               )}
             </div>
           </div>
-        </div>
+        </Section>
 
-        <div className="rounded-[28px] border border-white/10 bg-surface p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent">Providers</p>
-              <h3 className="mt-3 text-2xl font-semibold text-textMain">Stored integrations</h3>
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-textMuted">
-              {loading ? 'Loading...' : `${credentials.length} configured`}
-            </div>
-          </div>
+        <Section title="Provider status" description="Credentials are masked after save and managed server-side.">
+          {loading ? (
+            <p className="text-sm text-slate-400">Loading providers...</p>
+          ) : (
+            <ul className="space-y-2">
+              {PROVIDERS.map((item) => {
+                const credential = credentials.find((entry) => entry.provider === item.value);
+                const connected = Boolean(credential);
 
-          <div className="mt-6 space-y-4">
-            {credentials.map((item) => (
-              <div key={item.provider} className="rounded-[24px] border border-white/10 bg-bg/60 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h4 className="text-lg font-semibold capitalize text-textMain">{item.provider}</h4>
-                    <p className="mt-2 text-sm text-textMuted">Masked key: {item.key_mask}</p>
-                    <p className="mt-2 text-xs text-textMuted">
-                      Stored {new Date(item.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <StatusBadge status="success">stored</StatusBadge>
-                </div>
-              </div>
-            ))}
-            {!loading && credentials.length === 0 && (
-              <div className="rounded-[24px] border border-white/10 bg-bg/60 p-5 text-sm text-textMuted">
-                No provider keys stored yet.
-              </div>
-            )}
-          </div>
+                return (
+                  <li key={item.value} className="rounded-xl border border-white/10 bg-slate-900 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-slate-100">{item.label}</p>
+                        {credential ? (
+                          <p className="text-xs text-slate-400">{credential.key_mask}</p>
+                        ) : (
+                          <p className="text-xs text-slate-500">No key saved</p>
+                        )}
+                      </div>
 
-          <div className="mt-8 rounded-[24px] border border-accent/20 bg-accentSoft p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent">Security Note</p>
-            <p className="mt-3 text-sm leading-6 text-textMain">
-              Raw keys are never returned to the frontend after save. The backend encrypts them and uses them only during execution.
-            </p>
-          </div>
-
-          <div className="mt-4 rounded-[24px] border border-white/10 bg-bg/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-textMuted">Target Site Login</p>
-            <p className="mt-3 text-sm leading-6 text-textMuted">
-              Website username/password for scraping are set per run on the Landing or Run page. They are not managed as global provider keys here.
-            </p>
-          </div>
-        </div>
+                      <span
+                        className={`rounded-full border px-2 py-1 text-xs ${
+                          connected
+                            ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200'
+                            : 'border-white/10 bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {connected ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Section>
       </div>
-    </div>
+
+      <Section title="Security note">
+        <p className="text-sm text-slate-300">
+          Provider credentials are not returned in raw form after saving. Target-site login details are configured per run in
+          Home Advanced Options.
+        </p>
+      </Section>
+    </section>
   );
 };
 
-export default AiIntegrationsPage;
+export default IntegrationsPage;

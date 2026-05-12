@@ -1,17 +1,25 @@
 import React from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
-import AccountPage from './pages/AccountPage';
-import AiIntegrationsPage from './pages/AiIntegrationsPage';
-import ApiKeysPage from './pages/ApiKeysPage';
-import DashboardPage from './pages/DashboardPage';
-import ExportsPage from './pages/ExportsPage';
-import JobDetailPage from './pages/JobDetailPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import NewJobPage from './pages/NewJobPage';
-import SettingsPage from './pages/SettingsPage';
+import JobDetailPage from './pages/JobDetailPage';
+import { dashboardRegistry } from './config/dashboardRegistry';
+
+const DASHBOARD_PREFIXES = [
+  '/dashboard',
+  '/history',
+  '/workspace',
+  '/exports',
+  '/demo',
+  '/account',
+  '/api-keys',
+  '/settings',
+  '/ai-integrations',
+  '/system-keys',
+];
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -28,21 +36,19 @@ const ProtectedRoute = ({ children }) => {
 };
 
 function AppRoutes() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuth();
+
+  const inDashboardArea = DASHBOARD_PREFIXES.some((prefix) => location.pathname.startsWith(prefix));
+  const showNavbar = !(isAuthenticated && inDashboardArea);
+
   return (
     <div className="min-h-screen bg-bg font-body text-textMain">
-      <Navbar />
-      <main className="pt-24">
+      {showNavbar ? <Navbar /> : null}
+      <main className={showNavbar ? 'pt-24' : 'pt-0'}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
           <Route
             path="/jobs/new"
             element={
@@ -59,46 +65,17 @@ function AppRoutes() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/exports"
-            element={
-              <ProtectedRoute>
-                <ExportsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/api-keys"
-            element={
-              <ProtectedRoute>
-                <ApiKeysPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/account"
-            element={
-              <ProtectedRoute>
-                <AccountPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/ai-integrations"
-            element={
-              <ProtectedRoute>
-                <AiIntegrationsPage />
-              </ProtectedRoute>
-            }
-          />
+          {dashboardRegistry.map((entry) => {
+            const Component = entry.component;
+            const content = <Component />;
+            return (
+              <Route
+                key={entry.key}
+                path={entry.route}
+                element={entry.protected ? <ProtectedRoute>{content}</ProtectedRoute> : content}
+              />
+            );
+          })}
         </Routes>
       </main>
     </div>

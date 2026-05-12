@@ -8,6 +8,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    netcat-openbsd \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -33,8 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
-    python -m playwright install chromium
+    pip install --no-cache-dir -r /tmp/requirements.txt
+RUN playwright install --with-deps chromium
 
 COPY backend /app/backend
 
@@ -42,4 +43,4 @@ WORKDIR /app/backend
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]

@@ -25,7 +25,11 @@ def _serialize_api_key(api_key: ApiKey, *, preview: str | None = None) -> ApiKey
     )
 
 
-@router.post("", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_api_key(
     payload: ApiKeyCreate,
     db: AsyncSession = Depends(get_db),
@@ -67,7 +71,10 @@ async def list_api_keys(
     return ApiKeyListResponse(api_keys=[_serialize_api_key(item) for item in api_keys], total=int(total))
 
 
-@router.delete("/{api_key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{api_key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def delete_api_key(
     api_key_id: UUID,
     db: AsyncSession = Depends(get_db),

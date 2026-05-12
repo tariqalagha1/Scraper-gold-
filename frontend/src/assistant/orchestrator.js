@@ -78,6 +78,22 @@ export const saveRecentRequest = (request) => {
 };
 
 export const humanizeLog = (entry) => {
+  const node = String(entry?.details?.node || '').trim();
+  const nodeLabel = node ? `${node.charAt(0).toUpperCase()}${node.slice(1)}` : 'Step';
+
+  if (entry?.event === 'node_started') {
+    return `${nodeLabel} step started`;
+  }
+  if (entry?.event === 'node_completed') {
+    return `${nodeLabel} step completed`;
+  }
+  if (entry?.event === 'node_failed') {
+    return `${nodeLabel} step failed`;
+  }
+  if (entry?.event === 'node_timeout') {
+    return `${nodeLabel} step timed out`;
+  }
+
   const map = {
     run_started: 'Starting your request',
     pipeline_started: 'Scanning pages and extracting data',
@@ -104,8 +120,45 @@ export const buildRunStatusMessage = (run) => {
   return 'This run stopped before it could fully complete.';
 };
 
+const extractResultRows = (results) => {
+  const entries = Array.isArray(results) ? results : [];
+  const rows = [];
+
+  entries.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+
+    const payload = entry?.data_json && typeof entry.data_json === 'object' ? entry.data_json : entry;
+    if (!payload || typeof payload !== 'object') return;
+
+    if (Array.isArray(payload.items) && payload.items.length > 0) {
+      payload.items.forEach((item) => {
+        if (item && typeof item === 'object') rows.push(item);
+      });
+      return;
+    }
+
+    if (Array.isArray(payload.result?.data) && payload.result.data.length > 0) {
+      payload.result.data.forEach((item) => {
+        if (item && typeof item === 'object') rows.push(item);
+      });
+      return;
+    }
+
+    if (Array.isArray(payload.data) && payload.data.length > 0) {
+      payload.data.forEach((item) => {
+        if (item && typeof item === 'object') rows.push(item);
+      });
+      return;
+    }
+
+    rows.push(payload);
+  });
+
+  return rows;
+};
+
 export const buildResultHighlights = (results) => {
-  const first = results?.[0]?.data_json || {};
+  const first = extractResultRows(results)?.[0] || {};
   return {
     name: first.name || first.title || first.product_name || '',
     price: first.price || first.amount || '',
@@ -114,8 +167,8 @@ export const buildResultHighlights = (results) => {
 };
 
 export const buildResultFieldSummary = (results) => {
-  const items = results || [];
-  const keys = [...new Set(items.flatMap((item) => Object.keys(item?.data_json || {})))];
+  const items = extractResultRows(results);
+  const keys = [...new Set(items.flatMap((item) => Object.keys(item || {})))];
   const preferredKeys = ['name', 'title', 'price', 'amount', 'availability', 'stock'];
   const visibleKeys = preferredKeys.filter((key) => keys.includes(key));
 
@@ -131,11 +184,11 @@ export const buildResultFieldSummary = (results) => {
 };
 
 export const buildResultSummary = (items) => {
-  const results = items || [];
+  const results = extractResultRows(items);
   const total = results.length;
   const prices = results
     .map((item) => {
-      const raw = item?.data_json?.price || item?.data_json?.amount;
+      const raw = item?.price || item?.amount;
       if (typeof raw === 'number') return raw;
       const match = String(raw || '').match(/(\d+(\.\d+)?)/);
       return match ? Number(match[1]) : null;
@@ -152,8 +205,15 @@ export const buildResultSummary = (items) => {
 };
 
 export const buildRunExplanation = ({ run, results, logs }) => {
-  const count = results?.length || 0;
-  const lastStep = logs?.length ? humanizeLog(logs[logs.length - 1]) : '';
+  const count = extractResultRows(results).length;
+  const normalizedLogs = Array.isArray(logs) ? logs : [];
+  const lastStep = normalizedLogs.length ? humanizeLog(normalizedLogs[normalizedLogs.length - 1]) : '';
+  const latestFailureEntry = [...normalizedLogs].reverse().find((entry) => {
+    const event = String(entry?.event || '').toLowerCase();
+    const level = String(entry?.level || '').toLowerCase();
+    return event.includes('failed') || event.includes('timeout') || level === 'error';
+  });
+  const latestFailureStep = latestFailureEntry ? humanizeLog(latestFailureEntry) : '';
 
   if (!run) {
     return {
@@ -192,10 +252,11 @@ export const buildRunExplanation = ({ run, results, logs }) => {
   }
 
   if (count > 0) {
+    const failedStepMessage = latestFailureStep || run.error_message || lastStep || 'The request stopped before every page could be processed.';
     return {
       title: 'The run finished with some issues',
       severity: 'warning',
-      whatHappened: lastStep || 'The request stopped before every page could be processed.',
+      whatHappened: failedStepMessage,
       whatWasFound: `We still collected ${count} item${count === 1 ? '' : 's'} before it stopped.`,
       whatItMeans: run.error_message || 'You may already have useful data, even though the run was not fully complete.',
       nextStep: 'Review the results first, then decide whether to retry for more coverage.',
@@ -206,7 +267,7 @@ export const buildRunExplanation = ({ run, results, logs }) => {
   return {
     title: 'The run needs attention',
     severity: 'warning',
-    whatHappened: lastStep || 'The request did not finish normally.',
+    whatHappened: latestFailureStep || run.error_message || lastStep || 'The request did not finish normally.',
     whatWasFound: count ? `Some data was collected before the run stopped. ${count} item${count === 1 ? '' : 's'} found.` : 'No usable data was collected.',
     whatItMeans: run.error_message || 'The website may have blocked access or taken too long to respond.',
     nextStep: 'Try again, use a simpler page, or retry the run.',

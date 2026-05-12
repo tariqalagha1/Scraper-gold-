@@ -2,12 +2,14 @@
 
 Handles user registration, login, and profile retrieval.
 """
+import asyncio
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
@@ -18,25 +20,27 @@ from app.schemas.user import TokenResponse, UserCreate, UserResponse
 
 
 router = APIRouter()
+REGISTER_LOCK_RETRIES = 3
+DUMMY_PASSWORD_HASH = hash_password("smart-scraper-auth-dummy-password-v1")
 
 
 def _validate_password_strength(password: str) -> dict:
     """Validate password meets minimum strength requirements."""
-    if len(password) < 8:
-        return {"valid": False, "reason": "Password must be at least 8 characters"}
-    
-    if not any(c.isupper() for c in password):
-        return {"valid": False, "reason": "Password must contain at least one uppercase letter"}
-    
+    if len(password) < 10:
+        return {"valid": False, "reason": "Password must be at least 10 characters"}
+
     if not any(c.islower() for c in password):
         return {"valid": False, "reason": "Password must contain at least one lowercase letter"}
-    
+
+    if not any(c.isupper() for c in password):
+        return {"valid": False, "reason": "Password must contain at least one uppercase letter"}
+
     if not any(c.isdigit() for c in password):
         return {"valid": False, "reason": "Password must contain at least one digit"}
-    
-    if not any(c in "!@#$%^&*" for c in password):
-        return {"valid": False, "reason": "Password must contain at least one special character (!@#$%^&*)"}
-    
+
+    if not re.search(r"[^A-Za-z0-9]", password):
+        return {"valid": False, "reason": "Password must contain at least one special character"}
+
     return {"valid": True, "reason": ""}
 
 
@@ -77,21 +81,29 @@ async def register(
     # Create new user with hashed password
     hashed_pwd = hash_password(user_data.password)
     new_user = User(
-        email=user_data.email,
+        email=user_data.email.strip().lower(),
         hashed_password=hashed_pwd,
         is_active=True,
         plan=normalize_plan("free"),
     )
     
     db.add(new_user)
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        ) from exc
+    for attempt in range(REGISTER_LOCK_RETRIES + 1):
+        try:
+            await db.commit()
+            break
+        except IntegrityError as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered",
+            ) from exc
+        except OperationalError as exc:
+            await db.rollback()
+            if "database is locked" not in str(exc).lower() or attempt >= REGISTER_LOCK_RETRIES:
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
+            db.add(new_user)
     await db.refresh(new_user)
     
     return UserResponse.model_validate(new_user)
@@ -121,11 +133,24 @@ async def login(
         HTTPException 401: If credentials are invalid.
     """
     # Find user by email (username field contains email)
-    stmt = select(User).where(User.email == form_data.username)
+    normalized_username = form_data.username.strip().lower()
+    if not normalized_username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    stmt = select(User).where(func.lower(User.email) == normalized_username)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
-    if not user or not verify_password(form_data.password, user.hashed_password):
+
+    # Always verify against a hash, even when the user doesn't exist, to reduce
+    # timing differences that can leak account existence.
+    comparison_hash = user.hashed_password if user else DUMMY_PASSWORD_HASH
+    password_matches = verify_password(form_data.password, comparison_hash)
+
+    if not user or not password_matches:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

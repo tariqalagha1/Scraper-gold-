@@ -1,0 +1,608 @@
+.command-center-dashboard {
+  --cc-surface: #121415;
+  --cc-surface-low: #1a1c1d;
+  --cc-surface-panel: #282a2b;
+  --cc-glass-bg: rgba(51, 53, 54, 0.4);
+  --cc-text: #f5efe5;
+  --cc-text-muted: #b7afa3;
+  --cc-primary: #ffd3a0;
+  --cc-primary-container: #e8b678;
+  --cc-primary-ink: #462a00;
+  --cc-tertiary: #bddeff;
+  --cc-warning: #f0bd7f;
+  --cc-success: #b4d79b;
+  --cc-danger: #ff8175;
+  --cc-radius-lg: 1.5rem;
+  --cc-radius-xl: 2rem;
+  --cc-shadow-ambient: 0 24px 60px rgba(240, 189, 127, 0.08);
+  color: var(--cc-text);
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.command-center-dashboard * {
+  box-sizing: border-box;
+}
+
+.command-center-dashboard .surface-low {
+  background: linear-gradient(180deg, rgba(26, 28, 29, 0.96), rgba(18, 20, 21, 0.98));
+}
+
+.command-center-dashboard .surface-panel {
+  background: linear-gradient(180deg, rgba(40, 42, 43, 0.88), rgba(26, 28, 29, 0.92));
+  border-radius: var(--cc-radius-lg);
+  box-shadow: var(--cc-shadow-ambient);
+  border: 1px solid rgba(79, 69, 58, 0.3);
+}
+
+.command-center-dashboard .glass-panel {
+  background: var(--cc-glass-bg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: var(--cc-radius-xl);
+  box-shadow: var(--cc-shadow-ambient);
+  border: 1px solid rgba(79, 69, 58, 0.28);
+}
+
+.command-center-dashboard .settings-sidebar {
+  padding: 1.25rem;
+  border-radius: var(--cc-radius-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: 1px solid rgba(79, 69, 58, 0.32);
+}
+
+.command-center-dashboard .sidebar-header h2,
+.command-center-dashboard .section-title h2,
+.command-center-dashboard .hero-priority h2,
+.command-center-dashboard .dashboard-header h1 {
+  margin: 0.35rem 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.command-center-dashboard .sidebar-header p,
+.command-center-dashboard .hero-priority p,
+.command-center-dashboard .kpi-card p,
+.command-center-dashboard .timeline-content p,
+.command-center-dashboard .task-card p {
+  margin: 0.65rem 0 0;
+  color: var(--cc-text-muted);
+  line-height: 1.6;
+}
+
+.command-center-dashboard .eyebrow,
+.command-center-dashboard .field-label,
+.command-center-dashboard .metric-caption,
+.command-center-dashboard .warning-label,
+.command-center-dashboard .task-priority,
+.command-center-dashboard .meta-item {
+  font-family: "Space Grotesk", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  color: var(--cc-warning);
+}
+
+.command-center-dashboard .settings-group {
+  padding: 1rem;
+}
+
+.command-center-dashboard .sovereign-select {
+  margin-top: 0.65rem;
+  width: 100%;
+  border: 1px solid rgba(79, 69, 58, 0.6);
+  outline: 0;
+  border-radius: 1rem;
+  padding: 0.85rem 0.9rem;
+  background: rgba(12, 14, 15, 0.72);
+  color: var(--cc-text);
+  font: inherit;
+}
+
+.command-center-dashboard .toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.75rem;
+  color: var(--cc-text);
+}
+
+.command-center-dashboard .toggle-row input {
+  accent-color: var(--cc-primary-container);
+}
+
+.command-center-dashboard .chip-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.command-center-dashboard .data-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+}
+
+.command-center-dashboard .data-chip:disabled,
+.command-center-dashboard .sovereign-select:disabled,
+.command-center-dashboard .toggle-row input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.command-center-dashboard .chip-warm {
+  background: rgba(232, 182, 120, 0.18);
+  color: var(--cc-primary);
+  border-color: rgba(232, 182, 120, 0.38);
+}
+
+.command-center-dashboard .chip-neutral {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--cc-text);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.command-center-dashboard .settings-status {
+  margin: 0.75rem 0 0;
+  color: var(--cc-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.command-center-dashboard .settings-status.error {
+  color: var(--cc-danger);
+}
+
+.command-center-dashboard .dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.command-center-dashboard .core-workflow {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.command-center-dashboard .workflow-intro {
+  margin: 0;
+  color: var(--cc-text-muted);
+  line-height: 1.55;
+}
+
+.command-center-dashboard .workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.command-center-dashboard .credentials-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.command-center-dashboard .workflow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.command-center-dashboard .workflow-field-wide {
+  grid-column: 1 / -1;
+}
+
+.command-center-dashboard .workflow-input {
+  width: 100%;
+  border: 1px solid rgba(79, 69, 58, 0.58);
+  outline: 0;
+  border-radius: 1rem;
+  padding: 0.78rem 0.88rem;
+  background: rgba(12, 14, 15, 0.8);
+  color: var(--cc-text);
+  font: inherit;
+}
+
+.command-center-dashboard .workflow-input:focus {
+  border-color: rgba(255, 211, 160, 0.72);
+  box-shadow: 0 0 0 2px rgba(255, 211, 160, 0.14);
+}
+
+.command-center-dashboard .workflow-input::placeholder {
+  color: rgba(183, 175, 163, 0.78);
+}
+
+.command-center-dashboard .workflow-textarea {
+  resize: vertical;
+  min-height: 7rem;
+}
+
+.command-center-dashboard .workflow-toggle {
+  margin-top: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(79, 69, 58, 0.35);
+  background: rgba(12, 14, 15, 0.45);
+}
+
+.command-center-dashboard .workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.command-center-dashboard .workflow-alert {
+  margin: 0;
+  border-radius: 1rem;
+  padding: 0.72rem 0.82rem;
+  font-size: 0.9rem;
+}
+
+.command-center-dashboard .workflow-alert-error {
+  background: rgba(255, 129, 117, 0.14);
+  border: 1px solid rgba(255, 129, 117, 0.32);
+  color: #ffb0a8;
+}
+
+.command-center-dashboard .workflow-alert-info {
+  background: rgba(189, 222, 255, 0.12);
+  border: 1px solid rgba(189, 222, 255, 0.28);
+  color: #d4e9ff;
+}
+
+.command-center-dashboard .workflow-ai-output {
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.command-center-dashboard .workflow-meta {
+  margin: 0;
+  color: var(--cc-tertiary);
+  font-size: 0.86rem;
+}
+
+.command-center-dashboard .workflow-ai-message {
+  margin: 0;
+  color: var(--cc-text);
+}
+
+.command-center-dashboard .workflow-refined-prompt {
+  margin: 0.45rem 0 0;
+  color: var(--cc-text-muted);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.command-center-dashboard .workflow-questions {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.command-center-dashboard .dashboard-header {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.command-center-dashboard .dashboard-header h1 {
+  font-size: clamp(2rem, 2.6vw, 3.2rem);
+}
+
+.command-center-dashboard .header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 0.75rem;
+}
+
+.command-center-dashboard .status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.38rem 0.78rem;
+  border-radius: 999px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.command-center-dashboard .status-complete {
+  background: rgba(180, 215, 155, 0.2);
+  color: var(--cc-success);
+}
+
+.command-center-dashboard .status-planning {
+  background: rgba(189, 222, 255, 0.18);
+  color: var(--cc-tertiary);
+}
+
+.command-center-dashboard .header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.command-center-dashboard .button {
+  border: 0;
+  border-radius: 1rem;
+  padding: 0.8rem 1rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.command-center-dashboard .button-primary {
+  background: linear-gradient(135deg, var(--cc-primary), var(--cc-primary-container));
+  color: var(--cc-primary-ink);
+}
+
+.command-center-dashboard .button-secondary {
+  background: rgba(51, 53, 54, 0.72);
+  color: var(--cc-text);
+  border: 1px solid rgba(79, 69, 58, 0.35);
+}
+
+.command-center-dashboard .hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 1rem;
+}
+
+.command-center-dashboard .hero-priority,
+.command-center-dashboard .hero-progress,
+.command-center-dashboard .task-board,
+.command-center-dashboard .timeline-panel {
+  padding: 1.25rem;
+}
+
+.command-center-dashboard .urgent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.command-center-dashboard .warning-cluster {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.command-center-dashboard .source-note {
+  padding: 0.95rem;
+}
+
+.command-center-dashboard .source-note strong {
+  display: block;
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--cc-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.command-center-dashboard .source-note p {
+  margin: 0.65rem 0 0;
+}
+
+.command-center-dashboard .warning-card {
+  padding: 0.95rem;
+}
+
+.command-center-dashboard .warning-high {
+  background: linear-gradient(180deg, rgba(93, 36, 32, 0.72), rgba(40, 42, 43, 0.9));
+}
+
+.command-center-dashboard .warning-medium {
+  background: linear-gradient(180deg, rgba(74, 56, 28, 0.72), rgba(40, 42, 43, 0.9));
+}
+
+.command-center-dashboard .warning-card strong,
+.command-center-dashboard .kpi-card strong,
+.command-center-dashboard .progress-metric strong {
+  display: block;
+  margin-top: 0.42rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(1.2rem, 2vw, 2rem);
+}
+
+.command-center-dashboard .progress-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.command-center-dashboard .progress-track {
+  height: 14px;
+  margin-top: 1.1rem;
+  border-radius: 999px;
+  background: rgba(12, 14, 15, 0.8);
+  overflow: hidden;
+}
+
+.command-center-dashboard .progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cc-primary-container), var(--cc-primary));
+}
+
+.command-center-dashboard .milestone-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1.1rem;
+}
+
+.command-center-dashboard .milestone-item,
+.command-center-dashboard .column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.command-center-dashboard .kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.command-center-dashboard .kpi-card {
+  padding: 1.05rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.command-center-dashboard .kpi-action {
+  margin-top: 1rem;
+  align-self: flex-start;
+}
+
+.command-center-dashboard .content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.8fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.command-center-dashboard .kanban-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.command-center-dashboard .kanban-column {
+  padding: 0.9rem;
+}
+
+.command-center-dashboard .column-count {
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.command-center-dashboard .task-card {
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border-radius: 1.2rem;
+  background: rgba(12, 14, 15, 0.75);
+}
+
+.command-center-dashboard .priority-high {
+  box-shadow: inset 0 0 0 1px rgba(255, 129, 117, 0.2);
+}
+
+.command-center-dashboard .priority-medium {
+  box-shadow: inset 0 0 0 1px rgba(240, 189, 127, 0.2);
+}
+
+.command-center-dashboard .priority-low {
+  box-shadow: inset 0 0 0 1px rgba(180, 215, 155, 0.2);
+}
+
+.command-center-dashboard .task-card h4,
+.command-center-dashboard .timeline-content h3,
+.command-center-dashboard .kanban-column h3 {
+  margin: 0.6rem 0 0;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.command-center-dashboard .timeline-list {
+  position: relative;
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.15rem;
+}
+
+.command-center-dashboard .timeline-list::before {
+  content: "";
+  position: absolute;
+  left: 6.2rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(240, 189, 127, 0.45), rgba(189, 222, 255, 0.18));
+}
+
+.command-center-dashboard .timeline-item {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.command-center-dashboard .timeline-date {
+  padding-top: 0.65rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.78rem;
+  color: var(--cc-warning);
+  text-transform: uppercase;
+}
+
+.command-center-dashboard .timeline-content {
+  padding: 0.9rem;
+}
+
+@media (max-width: 1300px) {
+  .command-center-dashboard,
+  .command-center-dashboard .hero-grid,
+  .command-center-dashboard .content-grid,
+  .command-center-dashboard .kpi-grid,
+  .command-center-dashboard .kanban-grid,
+  .command-center-dashboard .workflow-grid,
+  .command-center-dashboard .credentials-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .command-center-dashboard .settings-sidebar {
+    order: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .command-center-dashboard .dashboard-header {
+    flex-direction: column;
+  }
+
+  .command-center-dashboard .warning-cluster {
+    grid-template-columns: 1fr;
+  }
+
+  .command-center-dashboard .workflow-actions .button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .command-center-dashboard .timeline-item {
+    grid-template-columns: 1fr;
+  }
+
+  .command-center-dashboard .timeline-list::before {
+    display: none;
+  }
+}

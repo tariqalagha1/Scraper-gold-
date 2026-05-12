@@ -48,6 +48,64 @@ describe('assistant orchestrator', () => {
     expect(explanation.suggestions).toContain('Retry the run');
   });
 
+  test('counts nested extracted records instead of result rows', () => {
+    const explanation = buildRunExplanation({
+      run: { status: 'completed' },
+      results: [
+        {
+          data_json: {
+            items: [{ name: 'A' }, { name: 'B' }, { name: 'C' }],
+          },
+        },
+      ],
+      logs: [],
+    });
+
+    expect(explanation.whatWasFound).toBe('We found 3 items.');
+  });
+
+  test('prefers failure context over a later completed-looking log for failed runs with partial data', () => {
+    const explanation = buildRunExplanation({
+      run: {
+        status: 'failed',
+        error_message: 'Cannot reach Smart Scraper service.',
+      },
+      results: [
+        {
+          data_json: {
+            items: [{ name: 'Only item' }],
+          },
+        },
+      ],
+      logs: [
+        { event: 'node_completed', details: { node: 'export' } },
+        { event: 'run_failed', level: 'error', message: 'Cannot reach Smart Scraper service.' },
+      ],
+    });
+
+    expect(explanation.title).toBe('The run finished with some issues');
+    expect(explanation.whatHappened).toBe('The run could not finish');
+    expect(explanation.whatWasFound).toBe('We still collected 1 item before it stopped.');
+  });
+
+  test('prefers failure context over a later completed-looking log for failed runs with no results', () => {
+    const explanation = buildRunExplanation({
+      run: {
+        status: 'failed',
+        error_message: 'Cannot reach Smart Scraper service.',
+      },
+      results: [],
+      logs: [
+        { event: 'run_failed', level: 'error', message: 'Cannot reach Smart Scraper service.' },
+        { event: 'node_completed', details: { node: 'export' } },
+      ],
+    });
+
+    expect(explanation.title).toBe('The run needs attention');
+    expect(explanation.whatHappened).toBe('The run could not finish');
+    expect(explanation.whatWasFound).toBe('No usable data was collected.');
+  });
+
   test('builds recent activity feed items in newest-first order', () => {
     const feed = buildActivityFeed({
       jobs: [{ id: 'job-1', url: 'https://example.com', scrape_type: 'general', created_at: '2026-03-22T12:00:00Z' }],

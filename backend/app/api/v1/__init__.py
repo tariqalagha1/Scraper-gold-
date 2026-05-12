@@ -9,15 +9,20 @@ _ROUTERS = (
     ("auth", "/auth", ["Authentication"]),
     ("account", "/account", ["Account"]),
     ("user", "/user", ["User Data"]),
+    ("assistant", "/assistant", ["Assistant"]),
     ("api_keys", "/api-keys", ["API Keys"]),
     ("credentials", "/credentials", ["Credentials"]),
     ("jobs", "/jobs", ["Jobs"]),
     ("runs", "/runs", ["Runs"]),
     ("results", "/results", ["Results"]),
     ("exports", "/exports", ["Exports"]),
+    ("scrape", "/scrape", ["Scrape"]),
     ("scraping_types", "/scraping-types", ["Scraping Types"]),
     ("demo", "/demo", ["Demo"]),
+    ("system_keys", "/system-keys", ["System Keys"]),
     ("system", "/system", ["System"]),
+    ("events", "/events", ["Events"]),
+    ("control", "/control", ["Control"]),
 )
 
 for module_name, prefix, tags in _ROUTERS:

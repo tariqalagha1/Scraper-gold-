@@ -6,6 +6,7 @@ from app.api.deps import get_db
 from app.main import create_app
 
 pytestmark = pytest.mark.asyncio
+TEST_API_KEY = "test-global-api-key"
 
 
 def _override_db(session_factory):
@@ -17,7 +18,7 @@ def _override_db(session_factory):
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> str:
-    password = "super-secret-123"
+    password = "Super-secret-123"
     register_response = await client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": password},
@@ -33,6 +34,13 @@ async def _register_and_login(client: AsyncClient, email: str) -> str:
     return login_response.json()["access_token"]
 
 
+def _auth_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-API-Key": TEST_API_KEY,
+    }
+
+
 async def test_create_job_rejects_malformed_url(test_engine):
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
     app = create_app()
@@ -43,7 +51,7 @@ async def test_create_job_rejects_malformed_url(test_engine):
         token = await _register_and_login(client, "invalid-job-url@example.com")
         response = await client.post(
             "/api/v1/jobs",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
             json={"url": "notaurl", "scrape_type": "general"},
         )
 
@@ -61,7 +69,7 @@ async def test_create_job_rejects_partial_login_credentials(test_engine):
         token = await _register_and_login(client, "partial-login-job@example.com")
         response = await client.post(
             "/api/v1/jobs",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
             json={
                 "url": "https://example.com/private",
                 "scrape_type": "general",
@@ -84,7 +92,7 @@ async def test_create_job_rejects_private_network_targets(test_engine):
         token = await _register_and_login(client, "private-target-job@example.com")
         response = await client.post(
             "/api/v1/jobs",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
             json={
                 "url": "http://169.254.169.254/latest/meta-data",
                 "scrape_type": "general",
@@ -105,7 +113,7 @@ async def test_create_job_rejects_prompt_injection_payload(test_engine):
         token = await _register_and_login(client, "prompt-guard-job@example.com")
         response = await client.post(
             "/api/v1/jobs",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
             json={
                 "url": "https://example.com/catalog",
                 "scrape_type": "general",
@@ -127,7 +135,7 @@ async def test_create_job_rejects_unknown_config_keys(test_engine):
         token = await _register_and_login(client, "unknown-config-job@example.com")
         response = await client.post(
             "/api/v1/jobs",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(token),
             json={
                 "url": "https://example.com/catalog",
                 "scrape_type": "general",

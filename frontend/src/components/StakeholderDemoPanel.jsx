@@ -21,25 +21,25 @@ const StakeholderDemoPanel = () => {
   };
 
   if (loading) {
-    return <div className="p-4">Loading demo data...</div>;
+    return <div className="p-4 text-textMuted">Loading demo data...</div>;
   }
 
   return (
-    <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-lg p-8 text-white">
-      <h2 className="text-3xl font-bold mb-6">AI-Powered Web Scraping Platform</h2>
+    <div className="rounded-2xl border border-white/10 bg-surface p-8 text-textMain shadow-glow">
+      <h2 className="mb-6 text-3xl font-bold">AI-Powered Web Scraping Platform</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white bg-opacity-20 rounded-lg p-6">
+      <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-bg/70 p-6">
           <div className="text-4xl font-bold mb-2">{demoData.total_users || 0}</div>
-          <div className="text-lg">Active Users</div>
+          <div className="text-lg text-textMuted">Active Users</div>
         </div>
-        <div className="bg-white bg-opacity-20 rounded-lg p-6">
+        <div className="rounded-2xl border border-white/10 bg-bg/70 p-6">
           <div className="text-4xl font-bold mb-2">{demoData.total_jobs || 0}</div>
-          <div className="text-lg">Scraping Jobs</div>
+          <div className="text-lg text-textMuted">Scraping Jobs</div>
         </div>
-        <div className="bg-white bg-opacity-20 rounded-lg p-6">
+        <div className="rounded-2xl border border-white/10 bg-bg/70 p-6">
           <div className="text-4xl font-bold mb-2">{demoData.total_runs || 0}</div>
-          <div className="text-lg">Total Runs</div>
+          <div className="text-lg text-textMuted">Total Runs</div>
         </div>
       </div>
 
@@ -48,7 +48,7 @@ const StakeholderDemoPanel = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {demoData.features?.map((feature, index) => (
             <div key={index} className="flex items-center">
-              <div className="w-2 h-2 bg-white rounded-full mr-3"></div>
+              <div className="mr-3 h-2 w-2 rounded-full bg-accent"></div>
               <span>{feature}</span>
             </div>
           ))}
@@ -59,16 +59,16 @@ const StakeholderDemoPanel = () => {
         <h3 className="text-xl font-semibold mb-4">Performance Metrics</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {Object.entries(demoData.performance_metrics || {}).map(([key, value]) => (
-            <div key={key} className="bg-white bg-opacity-20 rounded-lg p-4">
+            <div key={key} className="rounded-2xl border border-white/10 bg-bg/70 p-4">
               <div className="text-2xl font-bold mb-1">{value}</div>
-              <div className="text-sm capitalize">{key.replace('_', ' ')}</div>
+              <div className="text-sm capitalize text-textMuted">{key.replace('_', ' ')}</div>
             </div>
           ))}
         </div>
       </div>
 
       <div className="text-center">
-        <div className="inline-flex items-center px-4 py-2 bg-white bg-opacity-20 rounded-full">
+        <div className="inline-flex items-center rounded-full border border-white/10 bg-bg/70 px-4 py-2">
           <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
           <span className="text-sm font-medium">System Status: {demoData.system_status || 'Operational'}</span>
         </div>

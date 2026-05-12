@@ -82,11 +82,19 @@ async def get_usage_summary(db: AsyncSession, user_id: UUID) -> dict[str, int]:
 
 async def enforce_job_limit(db: AsyncSession, user: User) -> None:
     limits = get_plan_limits(user.plan)
-    total_jobs = (await db.execute(select(func.count(Job.id)).where(Job.user_id == user.id))).scalar() or 0
-    if int(total_jobs) >= limits["max_jobs"]:
+    active_statuses = ("pending", "running")
+    active_jobs = (
+        await db.execute(
+            select(func.count(Job.id)).where(
+                Job.user_id == user.id,
+                Job.status.in_(active_statuses),
+            )
+        )
+    ).scalar() or 0
+    if int(active_jobs) >= limits["max_jobs"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"{normalize_plan(user.plan).title()} plan job limit reached",
+            detail=f"{normalize_plan(user.plan).title()} plan active job limit reached",
         )
 
 

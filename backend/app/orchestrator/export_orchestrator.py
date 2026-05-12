@@ -35,7 +35,7 @@ class ExportOrchestrator:
         """Get user's exports with filtering."""
         query = select(
             Export,
-            Job.name.label("job_name"),
+            Job.url.label("job_name"),
             Run.status.label("run_status")
         ).join(Run).join(Job).where(Job.user_id == user_id)
 

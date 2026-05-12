@@ -9,8 +9,10 @@ from app.models.job import Job
 from app.models.log import Log
 from app.models.result import Result
 from app.models.run import Run
+from app.models.system_secret import SystemSecret
 from app.models.user import User
 from app.models.user_api_key import UserApiKey
+from app.models.user_preference import UserPreference
 
 __all__ = [
     "User",
@@ -20,5 +22,7 @@ __all__ = [
     "Result",
     "Export",
     "Log",
+    "SystemSecret",
     "UserApiKey",
+    "UserPreference",
 ]

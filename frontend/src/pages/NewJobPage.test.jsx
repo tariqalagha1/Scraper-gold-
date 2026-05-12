@@ -119,7 +119,14 @@ describe('NewJobPage landing intent flow', () => {
         follow_pagination: false,
       })
     );
-    await waitFor(() => expect(api.startJobRun).toHaveBeenCalledWith('job-123'));
+    await waitFor(() =>
+      expect(api.startJobRun).toHaveBeenCalledWith(
+        'job-123',
+        expect.objectContaining({
+          job: expect.objectContaining({ id: 'job-123' }),
+        })
+      )
+    );
     await waitFor(() => expect(screen.getByText('Job Detail Route')).toBeInTheDocument());
     expect(JSON.parse(localStorage.getItem('recent_requests'))).toEqual([
       expect.objectContaining({

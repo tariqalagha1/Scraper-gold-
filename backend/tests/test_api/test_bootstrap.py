@@ -14,13 +14,19 @@ def test_required_routers_are_registered():
     assert "/api/v1/jobs" in paths
     assert "/api/v1/exports" in paths
     assert "/api/v1/runs" in paths
+    assert "/api/v1/assistant/request-refinement" in paths
+    assert "/api/v1/scrape" in paths
 
 
 def test_required_route_modules_import_successfully():
     jobs_module = import_module("app.api.v1.jobs")
     exports_module = import_module("app.api.v1.exports")
     runs_module = import_module("app.api.v1.runs")
+    assistant_module = import_module("app.api.v1.assistant")
+    scrape_module = import_module("app.api.v1.scrape")
 
     assert jobs_module.router is not None
     assert exports_module.router is not None
     assert runs_module.router is not None
+    assert assistant_module.router is not None
+    assert scrape_module.router is not None

@@ -53,16 +53,40 @@ async def test_get_current_user_accepts_user_api_key(db_session):
     assert current_user.plan == "pro"
 
 
-async def test_verify_api_key_accepts_valid_jwt_without_api_key(db_session):
+async def test_verify_api_key_rejects_missing_key_even_with_valid_jwt(db_session):
     user = User(email="saas-jwt-verify@example.com", hashed_password="hashed", is_active=True, plan="pro")
     db_session.add(user)
     await db_session.commit()
 
     token = create_access_token({"sub": str(user.id), "email": user.email})
 
-    validated = await verify_api_key(token=token, x_api_key=None, configured_header_key=None, db=db_session)
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_api_key(token=token, x_api_key=None, configured_header_key=None, db=db_session)
 
-    assert validated is None
+    assert exc_info.value.status_code == 401
+
+
+async def test_verify_api_key_accepts_configured_global_key(db_session):
+    validated = await verify_api_key(
+        token=None,
+        x_api_key="test-global-api-key",
+        configured_header_key=None,
+        db=db_session,
+    )
+
+    assert validated == "test-global-api-key"
+
+
+async def test_verify_api_key_rejects_invalid_key(db_session):
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_api_key(
+            token=None,
+            x_api_key="invalid-test-key",
+            configured_header_key=None,
+            db=db_session,
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 async def test_create_job_enforces_plan_max_jobs(db_session):
@@ -90,6 +114,31 @@ async def test_create_job_enforces_plan_max_jobs(db_session):
 
     assert exc_info.value.status_code == 403
     assert "job limit" in exc_info.value.detail.lower()
+
+
+async def test_create_job_ignores_completed_or_cancelled_jobs_for_active_limit(db_session):
+    user = User(email="saas-free-active-limit@example.com", hashed_password="hashed", is_active=True, plan="free")
+    db_session.add(user)
+    await db_session.flush()
+    for index in range(5):
+        db_session.add(
+            Job(
+                user_id=user.id,
+                url=f"https://example.com/completed/{index}",
+                scrape_type="general",
+                config={},
+                status="completed",
+            )
+        )
+    await db_session.commit()
+
+    created = await create_job(
+        JobCreate(url="https://example.com/new-active", scrape_type=ScrapingType.GENERAL),
+        db_session,
+        user,
+    )
+
+    assert str(created.url) == "https://example.com/new-active"
 
 
 async def test_account_summary_returns_usage_counts(db_session):

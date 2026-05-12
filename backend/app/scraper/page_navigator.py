@@ -1,4 +1,5 @@
 """Pagination and navigation handler."""
+from typing import Any
 from typing import Optional
 import logging
 from urllib.parse import urljoin
@@ -20,15 +21,40 @@ class PageNavigator:
     """
     
     NEXT_BUTTON_SELECTORS = [
+        '.ngx-pagination .pagination-next a',
+        '.ngx-pagination .pagination-next button',
+        '.ngx-pagination li.pagination-next:not(.disabled) a',
+        '.ngx-pagination li.pagination-next:not(.disabled) button',
+        '.pagination .next a',
+        '.pagination .next button',
+        'li.pagination-next a',
+        'li.pagination-next button',
+        '.mat-paginator-navigation-next',
+        '.mat-mdc-paginator-navigation-next',
+        '[rel="next"]',
         'a:has-text("Next")',
         'button:has-text("Next")',
+        'a:has-text("التالي")',
+        'button:has-text("التالي")',
+        'a[aria-label*="Next page"]',
+        'button[aria-label*="Next page"]',
+        'a[aria-label*="next" i]',
+        'button[aria-label*="next" i]',
+        'a[title*="next" i]',
+        'button[title*="next" i]',
         'a.next',
         'button.next',
         '.pagination a.next',
-        '.pagination .next a',
-        '[rel="next"]',
         'a[aria-label="Next"]',
+        'a[aria-label*="Next"]',
         'button[aria-label="Next"]',
+        'button[aria-label*="Next"]',
+    ]
+
+    NUMBER_PAGINATION_SELECTORS = [
+        ".ngx-pagination li.current + li a",
+        ".pagination li.active + li a",
+        ".pagination .current + li a",
     ]
     
     LOAD_MORE_SELECTORS = [
@@ -64,6 +90,14 @@ class PageNavigator:
             )
             if url:
                 return url
+
+            url = await self._try_numbered_pagination(
+                page,
+                wait_for_selector=wait_for_selector,
+                wait_timeout_ms=wait_timeout_ms,
+            )
+            if url:
+                return url
             
             url = await self._try_load_more(
                 page,
@@ -76,7 +110,14 @@ class PageNavigator:
             return None
         
         elif pagination_type == "next":
-            return await self._try_next_button(
+            url = await self._try_next_button(
+                page,
+                wait_for_selector=wait_for_selector,
+                wait_timeout_ms=wait_timeout_ms,
+            )
+            if url:
+                return url
+            return await self._try_numbered_pagination(
                 page,
                 wait_for_selector=wait_for_selector,
                 wait_timeout_ms=wait_timeout_ms,
@@ -109,26 +150,74 @@ class PageNavigator:
         Returns:
             URL of next page, or None
         """
+        previous_url = page.url
+        previous_signature = await self._content_signature(page)
+        previous_pagination_marker = await self._pagination_marker(page)
+
         for selector in self.NEXT_BUTTON_SELECTORS:
             try:
-                element = page.locator(selector).first
-                if await element.count() > 0:
-                    # Check if it's a link with href
+                for element in await self._interactable_candidates(page, selector):
+                    if await self._is_disabled(element):
+                        continue
+
                     href = await element.get_attribute("href")
-                    if href:
+                    if href and href.strip() and href.strip() not in {"#", "javascript:void(0)", "javascript:void(0);"}:
                         return urljoin(page.url, href)
-                    else:
-                        # It's a button, click it and return current page
-                        await element.click()
-                        await self._settle_after_interaction(
-                            page,
-                            wait_for_selector=wait_for_selector,
-                            wait_timeout_ms=wait_timeout_ms,
-                        )
+
+                    await self._click_element(element)
+                    await self._settle_after_interaction(
+                        page,
+                        wait_for_selector=wait_for_selector,
+                        wait_timeout_ms=wait_timeout_ms,
+                    )
+                    if await self._did_page_progress(
+                        page,
+                        previous_url=previous_url,
+                        previous_signature=previous_signature,
+                        previous_pagination_marker=previous_pagination_marker,
+                    ):
                         return page.url
             except Exception:
                 continue
         
+        return None
+
+    async def _try_numbered_pagination(
+        self,
+        page: Page,
+        *,
+        wait_for_selector: str | None = None,
+        wait_timeout_ms: int | None = None,
+    ) -> Optional[str]:
+        previous_url = page.url
+        previous_signature = await self._content_signature(page)
+        previous_pagination_marker = await self._pagination_marker(page)
+
+        for selector in self.NUMBER_PAGINATION_SELECTORS:
+            try:
+                for element in await self._interactable_candidates(page, selector):
+                    if await self._is_disabled(element):
+                        continue
+                    href = await element.get_attribute("href")
+                    if href and href.strip() and href.strip() not in {"#", "javascript:void(0)", "javascript:void(0);"}:
+                        return urljoin(page.url, href)
+
+                    await self._click_element(element)
+                    await self._settle_after_interaction(
+                        page,
+                        wait_for_selector=wait_for_selector,
+                        wait_timeout_ms=wait_timeout_ms,
+                    )
+                    if await self._did_page_progress(
+                        page,
+                        previous_url=previous_url,
+                        previous_signature=previous_signature,
+                        previous_pagination_marker=previous_pagination_marker,
+                    ):
+                        return page.url
+            except Exception:
+                continue
+
         return None
     
     async def _try_load_more(
@@ -146,17 +235,25 @@ class PageNavigator:
         Returns:
             Current URL after loading more, or None
         """
+        previous_url = page.url
+        previous_signature = await self._content_signature(page)
+        previous_pagination_marker = await self._pagination_marker(page)
         for selector in self.LOAD_MORE_SELECTORS:
             try:
-                element = page.locator(selector).first
-                if await element.count() > 0:
-                    await element.click()
+                for element in await self._interactable_candidates(page, selector):
+                    await self._click_element(element)
                     await self._settle_after_interaction(
                         page,
                         wait_for_selector=wait_for_selector,
                         wait_timeout_ms=wait_timeout_ms,
                     )
-                    return page.url
+                    if await self._did_page_progress(
+                        page,
+                        previous_url=previous_url,
+                        previous_signature=previous_signature,
+                        previous_pagination_marker=previous_pagination_marker,
+                    ):
+                        return page.url
             except Exception:
                 continue
         
@@ -192,6 +289,57 @@ class PageNavigator:
         
         return None
 
+    async def _click_element(self, element: Any) -> None:
+        try:
+            await element.scroll_into_view_if_needed()
+        except Exception:
+            pass
+
+        try:
+            await element.click(timeout=3000)
+            return
+        except Exception:
+            await element.click(force=True, timeout=3000)
+
+    async def _interactable_candidates(self, page: Page, selector: str, max_candidates: int = 8) -> list[Any]:
+        candidates: list[Any] = []
+        try:
+            locator = page.locator(selector)
+        except Exception:
+            return candidates
+
+        # Compatibility path for lightweight test doubles that only expose `.first`.
+        if not hasattr(locator, "count") or not callable(getattr(locator, "count", None)):
+            first = getattr(locator, "first", None)
+            return [first] if first is not None else []
+
+        try:
+            count = min(await locator.count(), max_candidates)
+        except Exception:
+            first = getattr(locator, "first", None)
+            return [first] if first is not None else []
+
+        for idx in range(count):
+            element = locator.nth(idx)
+            try:
+                is_visible = getattr(element, "is_visible", None)
+                if callable(is_visible):
+                    if await is_visible():
+                        candidates.append(element)
+                else:
+                    candidates.append(element)
+            except Exception:
+                continue
+
+        if candidates:
+            return candidates
+
+        # Fallback: if visibility checks are inconclusive, still try the first match.
+        first = getattr(locator, "first", None)
+        if first is not None and count > 0:
+            candidates.append(first)
+        return candidates
+
     async def _settle_after_interaction(
         self,
         page: Page,
@@ -209,3 +357,69 @@ class PageNavigator:
             if wait_timeout_ms and wait_timeout_ms > 0:
                 wait_kwargs["timeout"] = wait_timeout_ms
             await page.wait_for_selector(wait_for_selector, **wait_kwargs)
+
+    async def _is_disabled(self, element: Any) -> bool:
+        classes = str(await element.get_attribute("class") or "").lower()
+        aria_disabled = str(await element.get_attribute("aria-disabled") or "").lower()
+        disabled_attr = str(await element.get_attribute("disabled") or "").lower()
+        if "disabled" in classes:
+            return True
+        if aria_disabled in {"true", "1"}:
+            return True
+        return disabled_attr not in {"", "false", "none", "null"}
+
+    async def _content_signature(self, page: Page) -> str:
+        try:
+            signature = await page.evaluate(
+                """
+                () => {
+                  const target = document.querySelector('table tbody')
+                    || document.querySelector('[role="rowgroup"]')
+                    || document.body;
+                  return target && target.innerText ? target.innerText.slice(0, 4000) : '';
+                }
+                """
+            )
+            return str(signature or "")
+        except Exception:
+            return ""
+
+    async def _did_page_progress(
+        self,
+        page: Page,
+        *,
+        previous_url: str,
+        previous_signature: str,
+        previous_pagination_marker: str,
+    ) -> bool:
+        if page.url != previous_url:
+            return True
+
+        for _ in range(30):
+            await page.wait_for_timeout(250)
+            if page.url != previous_url:
+                return True
+            current_pagination_marker = await self._pagination_marker(page)
+            if current_pagination_marker and current_pagination_marker != previous_pagination_marker:
+                return True
+            current_signature = await self._content_signature(page)
+            if current_signature and current_signature != previous_signature:
+                return True
+
+        return False
+
+    async def _pagination_marker(self, page: Page) -> str:
+        try:
+            marker = await page.evaluate(
+                """
+                () => {
+                  const active = document.querySelector(
+                    '.ngx-pagination .current, .pagination .active, [aria-current="page"]'
+                  );
+                  return active && active.textContent ? active.textContent.trim() : '';
+                }
+                """
+            )
+            return str(marker or "")
+        except Exception:
+            return ""

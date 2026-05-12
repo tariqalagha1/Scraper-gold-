@@ -29,7 +29,7 @@ class HistoryOrchestrator:
         activities: list[dict[str, Any]] = []
 
         run_query = (
-            select(Run, Job.name.label("job_name"))
+            select(Run, Job.url.label("job_name"))
             .select_from(Run)
             .join(Job, Run.job_id == Job.id)
             .where(Job.user_id == user_id)
@@ -50,7 +50,7 @@ class HistoryOrchestrator:
             )
 
         export_query = (
-            select(Export, Job.name.label("job_name"))
+            select(Export, Job.url.label("job_name"))
             .select_from(Export)
             .join(Run, Export.run_id == Run.id)
             .join(Job, Run.job_id == Job.id)
@@ -124,7 +124,7 @@ class HistoryOrchestrator:
                     {
                         "id": str(run.id),
                         "type": "run",
-                        "title": f"Run for job '{job.name}'",
+                        "title": f"Run for job '{job.url}'",
                         "description": f"Status: {run.status}, Pages scraped: {run.pages_scraped or 0}",
                         "status": run.status,
                         "timestamp": run.created_at.isoformat(),
@@ -144,7 +144,7 @@ class HistoryOrchestrator:
             if end_date:
                 export_conditions.append(Export.created_at <= end_date)
 
-            export_query = select(Export, Job.name).select_from(Export).join(
+            export_query = select(Export, Job.url).select_from(Export).join(
                 Run, Export.run_id == Run.id
             ).join(
                 Job, Run.job_id == Job.id

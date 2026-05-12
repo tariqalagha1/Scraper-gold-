@@ -53,16 +53,15 @@ class WordExporter(BaseExporter):
         document.add_paragraph(f"Decision Confidence: {execution['Decision Confidence']}")
         document.add_paragraph(f"Reason: {execution['Decision Reason'] or 'None'}")
 
-        document.add_heading("Data Preview", level=1)
-        preview_rows = records[:10]
-        if preview_rows:
-            headers = sorted({key for row in preview_rows for key in row.keys()})[:5]
+        document.add_heading("Data Records", level=1)
+        if records:
+            headers = sorted({key for row in records for key in row.keys()})
             table = document.add_table(rows=1, cols=max(len(headers), 1))
             table.style = "Table Grid"
             header_cells = table.rows[0].cells
             for idx, value in enumerate(headers or ["Value"]):
                 header_cells[idx].text = str(value)
-            for row_data in preview_rows:
+            for row_data in records:
                 row_cells = table.add_row().cells
                 for idx, header in enumerate(headers[: len(row_cells)]):
                     row_cells[idx].text = str(row_data.get(header, ""))
@@ -71,8 +70,11 @@ class WordExporter(BaseExporter):
             document.add_paragraph("No structured data available.")
 
         document.add_heading("Errors", level=1)
-        for error in errors:
-            document.add_paragraph(error, style="List Bullet")
+        if errors:
+            for error in errors:
+                document.add_paragraph(error, style="List Bullet")
+        else:
+            document.add_paragraph("No errors reported.")
 
         buffer = BytesIO()
         document.save(buffer)

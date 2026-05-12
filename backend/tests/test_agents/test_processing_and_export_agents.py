@@ -3,11 +3,17 @@ from uuid import uuid4
 
 import pytest
 
+try:
+    from docx import Document as DocxDocument
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in CI
+    DocxDocument = None
+
 from app.agents.analysis_agent import AnalysisAgent
 from app.agents.export_agent import ExportAgent
 from app.agents.processing_agent import ProcessingAgent
 from app.agents.vector_agent import VectorAgent
 from app.config import settings
+from app.export.word_exporter import WordExporter
 from app.scraper.extractor import ContentExtractor
 from app.storage.manager import StorageManager
 
@@ -140,6 +146,67 @@ async def test_processing_agent_preserves_ai_selected_record_fields():
     assert "In stock" in result["data"]["items"][0]["content"]
 
 
+async def test_processing_agent_honors_max_records_limit():
+    extractor = ContentExtractor()
+    extracted = extractor.extract(
+        raw_html=LIST_HTML,
+        url="https://books.toscrape.com/catalogue/category/books/travel_2/index.html",
+        selectors={
+            "container": "article.product_pod",
+            "fields": {
+                "title": "h3 a",
+                "link": "h3 a[href]",
+                "price": ".price_color",
+            },
+        },
+    )
+
+    result = await ProcessingAgent().safe_execute(
+        {
+            "extracted": extracted,
+            "url": "https://books.toscrape.com/catalogue/category/books/travel_2/index.html",
+            "max_records": 2,
+        }
+    )
+
+    assert result["status"] == "success"
+    assert len(result["data"]["items"]) == 2
+
+
+async def test_processing_agent_projects_requested_record_fields_only():
+    html = """
+    <html>
+      <body>
+        <table>
+          <thead>
+            <tr><th>Registration No</th><th>Name</th><th>Phone Number</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1001</td><td>Fatimah Ali</td><td>0500000001</td><td>Active</td></tr>
+            <tr><td>1002</td><td>Mona Saeed</td><td>0500000002</td><td>Active</td></tr>
+            <tr><td>1003</td><td>Layan Omar</td><td>0500000003</td><td>Inactive</td></tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+    """
+
+    extractor = ContentExtractor()
+    extracted = extractor.extract(raw_html=html, url="https://example.com/patients")
+    result = await ProcessingAgent().safe_execute(
+        {
+            "extracted": extracted,
+            "url": "https://example.com/patients",
+            "record_fields": ["name"],
+        }
+    )
+
+    assert result["status"] == "success"
+    assert len(result["data"]["items"]) == 3
+    assert sorted(result["data"]["items"][0].keys()) == ["content", "name", "source_url", "type"]
+    assert result["data"]["items"][0]["name"] == "Fatimah Ali"
+
+
 async def test_export_agent_generates_all_formats_from_pipeline_payload(isolated_storage):
     extractor = ContentExtractor()
     processed = await ProcessingAgent().safe_execute(
@@ -176,6 +243,50 @@ async def test_export_agent_generates_all_formats_from_pipeline_payload(isolated
         assert storage.get_file_size(export_path) > 0
         assert Path(export_path).suffix.lower() == extension
         assert Path(export_path).parts[0] == "exports"
+
+
+async def test_word_exporter_includes_full_record_set_and_clean_empty_errors(isolated_storage):
+    if DocxDocument is None:
+        pytest.skip("python-docx is not installed")
+
+    records = [
+        {"name": f"Patient {index}", "id": str(1000 + index), "mobile": f"050000{index:04d}"}
+        for index in range(12)
+    ]
+    payload = {
+        "status": "completed",
+        "request": {"url": "https://example.com/patients"},
+        "result": {
+            "data": records,
+            "raw": {},
+            "processed": {"summary": "ok"},
+            "analysis": {},
+            "vector": {},
+            "exports": {},
+        },
+        "execution": {
+            "decision": {"page_type": "list", "confidence": 0.9, "reason": "fixture"},
+            "validation": {"status": "pass", "confidence": 0.9, "issues": [], "metrics": {}, "should_retry": False},
+            "retry": {"attempted": False, "result": False},
+            "memory": {"used": False, "selector_source": "generated", "success_rate": None},
+            "timing": {},
+            "steps": {"current": "export"},
+            "trace": {},
+        },
+        "metadata": {"run_id": "run-export-test", "job_id": "job-export-test", "user_id": "user-export-test"},
+        "errors": [],
+    }
+
+    exporter = WordExporter()
+    exported_path = await exporter.export(payload, source_url="https://example.com/patients", title="Patients")
+
+    storage = StorageManager()
+    absolute_path = storage.resolve_path(exported_path)
+    document = DocxDocument(str(absolute_path))
+
+    assert document.tables
+    assert len(document.tables[0].rows) == len(records) + 1
+    assert any(paragraph.text.strip() == "No errors reported." for paragraph in document.paragraphs)
 
 
 async def test_vector_agent_skips_when_disabled(monkeypatch):

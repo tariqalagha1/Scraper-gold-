@@ -181,6 +181,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request,
         exc: SQLAlchemyError,
     ) -> JSONResponse:
+        import logging
+        logging.error(f"SQLAlchemyError: {exc}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=DatabaseError("A database error occurred.").to_dict(),

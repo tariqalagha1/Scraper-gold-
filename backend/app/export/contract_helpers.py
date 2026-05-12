@@ -224,8 +224,7 @@ def get_export_metadata(contract: dict[str, Any]) -> dict[str, Any]:
 
 def get_export_errors(contract: dict[str, Any]) -> list[str]:
     normalized = normalize_export_contract(contract)
-    errors = [str(item).strip() for item in _ensure_list(normalized.get("errors")) if str(item).strip()]
-    return errors or ["None"]
+    return [str(item).strip() for item in _ensure_list(normalized.get("errors")) if str(item).strip()]
 
 
 def build_persisted_result_payload(workflow_result: dict[str, Any]) -> dict[str, Any]:

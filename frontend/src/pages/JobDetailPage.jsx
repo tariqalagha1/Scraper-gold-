@@ -263,7 +263,7 @@ const JobDetailPage = () => {
     try {
       setStartingRun(true);
       setError('');
-      await api.startJobRun(id);
+      await api.startJobRun(id, { job });
       await loadJobData({ silent: true });
     } catch (requestError) {
       setError(humanizeRunActionError(requestError, 'Could not start a new run.'));

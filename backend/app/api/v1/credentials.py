@@ -15,7 +15,11 @@ from app.services.user_credentials import (
 router = APIRouter()
 
 
-@router.post("", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CredentialResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_or_update_credential(
     payload: CredentialCreate,
     db: AsyncSession = Depends(get_db),
@@ -47,7 +51,10 @@ async def list_credentials(
     )
 
 
-@router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{provider}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def delete_credential(
     provider: str,
     db: AsyncSession = Depends(get_db),

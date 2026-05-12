@@ -69,6 +69,46 @@ def disable_agent_log_persistence(monkeypatch):
     monkeypatch.setattr(BaseAgent, "_persist_log", _noop)
 
 
+@pytest.fixture(autouse=True)
+def enforce_test_api_key(monkeypatch):
+    """Keep API-key protected write endpoints deterministic in tests."""
+    monkeypatch.setattr(settings, "API_KEY", "test-global-api-key")
+    monkeypatch.setattr(settings, "RATE_LIMIT_REQUESTS", 10_000)
+    monkeypatch.setattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr(settings, "JOB_CREATE_RATE_LIMIT", 10_000)
+    monkeypatch.setattr(settings, "RUN_CREATE_RATE_LIMIT", 10_000)
+
+
+@pytest.fixture(autouse=True)
+def stub_rate_limit_backend(monkeypatch):
+    """Avoid external Redis dependency for request-rate middleware in tests."""
+    from app.middleware import rate_limit as rate_limit_module
+
+    class _FakeRedis:
+        def __init__(self):
+            self.counts: dict[str, int] = {}
+
+        async def ping(self):
+            return True
+
+        async def incr(self, key: str) -> int:
+            value = self.counts.get(key, 0) + 1
+            self.counts[key] = value
+            return value
+
+        async def expire(self, key: str, seconds: int):
+            return True
+
+    fake_client = _FakeRedis()
+
+    async def _fake_get_redis(*, force_recreate: bool = False):
+        if force_recreate:
+            fake_client.counts.clear()
+        return fake_client
+
+    monkeypatch.setattr(rate_limit_module, "get_redis", _fake_get_redis)
+
+
 @pytest.fixture
 def isolated_storage(tmp_path, monkeypatch):
     """Route storage reads and writes to a per-test temporary directory."""

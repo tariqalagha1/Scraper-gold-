@@ -100,7 +100,7 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (err) {
-      const message = err.response?.data?.detail || 'Login failed. Please try again.';
+      const message = extractApiErrorMessage(err, 'Login failed. Please try again.');
       setError(message);
       return { success: false, error: message };
     } finally {
